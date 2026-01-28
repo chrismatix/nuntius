@@ -32,8 +32,65 @@ final class OutputManager {
                 }
                 return
             }
+
+            // Check if there's a text field to paste into
+            guard isTextFieldFocused() else {
+                logger.info("No text field focused, copied to clipboard only")
+                OverlayWindow.shared.showMessage("Copied to clipboard", icon: "doc.on.clipboard", autoDismissAfter: 2.0)
+                return
+            }
+
             sendPaste()
         }
+    }
+
+    /// Checks if a text input field is currently focused in the frontmost application
+    private func isTextFieldFocused() -> Bool {
+        guard let frontApp = NSWorkspace.shared.frontmostApplication else {
+            logger.debug("No frontmost application found")
+            return false
+        }
+
+        let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
+
+        var focusedElement: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+
+        guard result == .success, let element = focusedElement else {
+            logger.debug("Could not get focused element: \(result.rawValue)")
+            return false
+        }
+
+        // Check if the focused element is a text input type
+        var role: CFTypeRef?
+        let roleResult = AXUIElementCopyAttributeValue(element as! AXUIElement, kAXRoleAttribute as CFString, &role)
+
+        guard roleResult == .success, let roleString = role as? String else {
+            logger.debug("Could not get role of focused element")
+            return false
+        }
+
+        // Text input roles
+        let textInputRoles: Set<String> = [
+            kAXTextFieldRole as String,
+            kAXTextAreaRole as String,
+            kAXComboBoxRole as String,
+            "AXSearchField"  // kAXSearchFieldRole
+        ]
+
+        if textInputRoles.contains(roleString) {
+            return true
+        }
+
+        // Also check if the element has AXValue attribute that's editable (for web content)
+        var isEditable: CFTypeRef?
+        let editableResult = AXUIElementCopyAttributeValue(element as! AXUIElement, "AXEditable" as CFString, &isEditable)
+        if editableResult == .success, let editable = isEditable as? Bool, editable {
+            return true
+        }
+
+        logger.debug("Focused element role '\(roleString)' is not a text input")
+        return false
     }
 
     func checkAccessibilityPermission() -> Bool {

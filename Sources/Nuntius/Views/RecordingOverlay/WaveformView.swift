@@ -1,10 +1,16 @@
 import Foundation
 import SwiftUI
 
+struct OverlayMessage: Equatable {
+    let text: String
+    let icon: String
+}
+
 @MainActor
 final class WaveformView: ObservableObject {
     @Published private var circularBuffer: [Float] = []
     @Published private(set) var isProcessing = false
+    @Published private(set) var message: OverlayMessage?
 
     private let maxSamples = 60
     private var writeIndex = 0
@@ -34,9 +40,16 @@ final class WaveformView: ObservableObject {
         writeIndex = 0
         isFull = false
         isProcessing = false
+        message = nil
     }
 
     func showProcessing() {
         isProcessing = true
+        message = nil
+    }
+
+    func showMessage(_ text: String, icon: String) {
+        isProcessing = false
+        message = OverlayMessage(text: text, icon: icon)
     }
 }

@@ -4,12 +4,20 @@ import os
 
 @MainActor
 final class OverlayWindow {
+    static let shared = OverlayWindow()
+
     private var window: NSPanel?
     private var waveformView: WaveformView?
     private var hostingView: NSHostingView<WaveformContainer>?
     private let logger = Logger(subsystem: "com.chrismatix.nuntius", category: "OverlayWindow")
+    private var autoDismissTask: Task<Void, Never>?
+    private var isShowingMessage = false
 
     func show() {
+        autoDismissTask?.cancel()
+        autoDismissTask = nil
+        isShowingMessage = false
+
         if window == nil {
             guard createWindow() else {
                 logger.error("Failed to create overlay window - no screen available")
@@ -17,10 +25,33 @@ final class OverlayWindow {
             }
         }
         waveformView?.reset()
+        window?.alphaValue = 1
         window?.orderFront(nil)
     }
 
     func hide() {
+        // Don't hide if we're showing a message - let auto-dismiss handle it
+        guard !isShowingMessage else { return }
+
+        autoDismissTask?.cancel()
+        autoDismissTask = nil
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.2
+            window?.animator().alphaValue = 0
+        } completionHandler: {
+            Task { @MainActor [weak self] in
+                self?.window?.orderOut(nil)
+                self?.window?.alphaValue = 1
+            }
+        }
+    }
+
+    private func forceHide() {
+        isShowingMessage = false
+        autoDismissTask?.cancel()
+        autoDismissTask = nil
+
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.2
             window?.animator().alphaValue = 0
@@ -38,6 +69,29 @@ final class OverlayWindow {
 
     func showProcessing() {
         waveformView?.showProcessing()
+    }
+
+    /// Shows a message in the overlay and auto-dismisses after the specified duration
+    func showMessage(_ text: String, icon: String, autoDismissAfter: TimeInterval = 2.0) {
+        autoDismissTask?.cancel()
+        isShowingMessage = true
+
+        if window == nil {
+            guard createWindow() else {
+                logger.error("Failed to create overlay window - no screen available")
+                return
+            }
+        }
+
+        waveformView?.showMessage(text, icon: icon)
+        window?.alphaValue = 1
+        window?.orderFront(nil)
+
+        autoDismissTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(autoDismissAfter))
+            guard !Task.isCancelled else { return }
+            self?.forceHide()
+        }
     }
 
     @discardableResult
@@ -117,7 +171,17 @@ struct WaveformContainer: View {
                 .fill(.ultraThinMaterial)
 
             VStack(spacing: 4) {
-                if waveformView.isProcessing {
+                if let message = waveformView.message {
+                    HStack(spacing: 8) {
+                        Image(systemName: message.icon)
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
+                        Text(message.text)
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
+                    }
+                    .frame(height: 40)
+                } else if waveformView.isProcessing {
                     HStack(spacing: 8) {
                         ProgressView()
                             .controlSize(.small)
@@ -133,13 +197,15 @@ struct WaveformContainer: View {
                         .padding(.horizontal, 20)
                 }
 
-                HStack(spacing: 4) {
-                    Image(systemName: serviceIcon)
-                        .font(.caption2)
-                    Text(modelLabel)
-                        .font(.caption2)
+                if waveformView.message == nil {
+                    HStack(spacing: 4) {
+                        Image(systemName: serviceIcon)
+                            .font(.caption2)
+                        Text(modelLabel)
+                            .font(.caption2)
+                    }
+                    .foregroundStyle(.secondary)
                 }
-                .foregroundStyle(.secondary)
             }
             .padding(.vertical, 10)
         }

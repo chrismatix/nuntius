@@ -13,7 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let coordinator = TranscriptionCoordinator.shared
     private let networkMonitor = NetworkMonitor.shared
     private let outputManager = OutputManager()
-    private let overlayWindow = OverlayWindow()
+    private var overlayWindow: OverlayWindow { OverlayWindow.shared }
     private let downloadOverlay = DownloadOverlayWindow()
     let updaterController = UpdaterController()
 

@@ -54,6 +54,10 @@ final class NotificationService {
         showNotification(title: title, message: message)
     }
 
+    func showInfo(title: String, message: String) {
+        showNotification(title: title, message: message)
+    }
+
     func showNotification(title: String, message: String) {
         guard isValidBundle, let center = notificationCenter else {
             logger.info("Using alert fallback for notification: \(title)")
