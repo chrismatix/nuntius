@@ -3,7 +3,7 @@ import Foundation
 import os
 
 final class AudioCaptureService {
-    private let engine = AVAudioEngine()
+    private var engine: AVAudioEngine?
     private let targetSampleRate: Double = 16_000
     private let converterQueue = DispatchQueue(label: "com.chrismatix.nuntius.audioconverter")
     private var converter: AVAudioConverter?
@@ -33,6 +33,11 @@ final class AudioCaptureService {
         guard !isCapturing else { return }
 
         queue.sync { capturedSamples.removeAll() }
+
+        // Create a fresh engine for each recording session to ensure
+        // audio hardware is fully released when we stop
+        let engine = AVAudioEngine()
+        self.engine = engine
 
         let inputNode = engine.inputNode
         let inputFormat = inputNode.inputFormat(forBus: 0)
@@ -65,10 +70,12 @@ final class AudioCaptureService {
     }
 
     func stopCapture() {
-        guard isCapturing else { return }
+        guard isCapturing, let engine = engine else { return }
         isCapturing = false
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
+        engine.reset()
+        self.engine = nil  // Release engine to fully disconnect from audio hardware
         setConverter(nil)
     }
 
