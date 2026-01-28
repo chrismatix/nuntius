@@ -3,12 +3,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "Jabber",
+    name: "Nuntius",
     platforms: [
         .macOS(.v14)
     ],
     products: [
-        .executable(name: "Jabber", targets: ["Jabber"])
+        .executable(name: "Nuntius", targets: ["Nuntius"])
     ],
     dependencies: [
         .package(url: "https://github.com/argmaxinc/WhisperKit.git", from: "0.15.0"),
@@ -16,12 +16,12 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "Jabber",
+            name: "Nuntius",
             dependencies: [
                 "WhisperKit",
                 .product(name: "Sparkle", package: "Sparkle")
             ],
-            path: "Sources/Jabber",
+            path: "Sources/Nuntius",
             resources: [
                 .process("Assets.xcassets")
             ]

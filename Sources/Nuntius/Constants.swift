@@ -6,10 +6,51 @@ enum Constants {
     /// Notification names used throughout the application
     enum Notifications {
         /// Posted when the selected Whisper model changes
-        static let modelDidChange = Notification.Name("com.rselbach.jabber.modelDidChange")
+        static let modelDidChange = Notification.Name("com.chrismatix.nuntius.modelDidChange")
 
         /// Posted when a model download starts/progresses/finishes
-        static let modelDownloadStateDidChange = Notification.Name("com.rselbach.jabber.modelDownloadStateDidChange")
+        static let modelDownloadStateDidChange = Notification.Name("com.chrismatix.nuntius.modelDownloadStateDidChange")
+
+        /// Posted when the transcription service (local vs cloud) changes
+        static let transcriptionServiceDidChange = Notification.Name("com.chrismatix.nuntius.transcriptionServiceDidChange")
+    }
+
+    /// OpenAI API configuration
+    enum OpenAI {
+        /// Transcription API endpoint
+        static let transcriptionEndpoint = "https://api.openai.com/v1/audio/transcriptions"
+
+        /// Models API endpoint for validation
+        static let modelsEndpoint = "https://api.openai.com/v1/models"
+
+        /// Available transcription models
+        enum TranscriptionModel: String, CaseIterable {
+            case gpt4oTranscribe = "gpt-4o-transcribe"
+            case gpt4oMiniTranscribe = "gpt-4o-mini-transcribe"
+            case whisper1 = "whisper-1"
+
+            var displayName: String {
+                switch self {
+                case .gpt4oTranscribe: return "GPT-4o Transcribe (Best)"
+                case .gpt4oMiniTranscribe: return "GPT-4o Mini Transcribe"
+                case .whisper1: return "Whisper"
+                }
+            }
+
+            var description: String {
+                switch self {
+                case .gpt4oTranscribe: return "Highest accuracy, $0.006/min"
+                case .gpt4oMiniTranscribe: return "Good accuracy, $0.003/min"
+                case .whisper1: return "Legacy model, $0.006/min"
+                }
+            }
+        }
+
+        /// Default transcription model
+        static let defaultModel: TranscriptionModel = .gpt4oTranscribe
+
+        /// Keychain service identifier for API key storage
+        static let keychainService = "com.chrismatix.nuntius.openai"
     }
 
     /// Supported Whisper transcription languages (from WhisperKit)
@@ -109,7 +150,7 @@ enum Constants {
     /// Helper for locating Whisper model files
     enum ModelPaths {
         private static let repoName = "argmaxinc/whisperkit-coreml"
-        private static let logger = Logger(subsystem: "com.rselbach.jabber", category: "ModelPaths")
+        private static let logger = Logger(subsystem: "com.chrismatix.nuntius", category: "ModelPaths")
 
         /// Returns the base directory where models are stored
         static func modelsBaseURL() -> URL? {

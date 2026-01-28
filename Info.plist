@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>Jabber</string>
+    <string>Nuntius</string>
     <key>CFBundleDisplayName</key>
-    <string>Jabber</string>
+    <string>Nuntius</string>
     <key>CFBundleIdentifier</key>
-    <string>com.rselbach.jabber</string>
+    <string>com.chrismatix.nuntius</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>CFBundleShortVersionString</key>
@@ -15,22 +15,18 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleExecutable</key>
-    <string>Jabber</string>
+    <string>Nuntius</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Jabber uses your microphone to capture audio for local speech-to-text transcription. Audio is processed entirely on your device and never leaves your Mac.</string>
+    <string>Nuntius uses your microphone to capture audio for speech-to-text transcription. Audio can be processed locally on your device or sent to OpenAI for cloud transcription based on your settings.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIconName</key>
     <string>AppIcon</string>
-    <key>SUFeedURL</key>
-    <string>https://rselbach.github.io/jabber/appcast.xml</string>
-    <key>SUPublicEDKey</key>
-    <string>ePrj/6ZMfGvkCXTYRq+X0H9Ukshi3Wx3+swNSi75Tio=</string>
 </dict>
 </plist>

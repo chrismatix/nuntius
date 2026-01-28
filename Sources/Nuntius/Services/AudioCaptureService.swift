@@ -11,7 +11,7 @@ final class AudioCaptureService {
     private let queue = DispatchQueue(label: "com.jabber.audiocapture")
     private var capturedSamples: [Float] = []
     private var _isCapturing = false
-    private let logger = Logger(subsystem: "com.rselbach.jabber", category: "AudioCaptureService")
+    private let logger = Logger(subsystem: "com.chrismatix.nuntius", category: "AudioCaptureService")
 
     var onAudioLevel: ((Float) -> Void)?
     var onConversionError: ((Error) -> Void)?

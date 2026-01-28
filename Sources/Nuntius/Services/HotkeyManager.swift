@@ -5,7 +5,7 @@ import os
 final class HotkeyManager {
     private var hotKeyRef: EventHotKeyRef?
     private var eventHandlerRef: EventHandlerRef?
-    private let logger = Logger(subsystem: "com.rselbach.jabber", category: "HotkeyManager")
+    private let logger = Logger(subsystem: "com.chrismatix.nuntius", category: "HotkeyManager")
 
     var onKeyDown: (() -> Void)?
     var onKeyUp: (() -> Void)?

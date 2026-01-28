@@ -6,7 +6,7 @@ import os
 final class DownloadOverlayWindow {
     private var window: NSPanel?
     private let viewModel = DownloadOverlayViewModel()
-    private let logger = Logger(subsystem: "com.rselbach.jabber", category: "DownloadOverlayWindow")
+    private let logger = Logger(subsystem: "com.chrismatix.nuntius", category: "DownloadOverlayWindow")
 
     func show() {
         if window == nil {
@@ -76,7 +76,7 @@ struct DownloadOverlayContent: View {
             HStack(spacing: 8) {
                 Image(systemName: "arrow.down.circle")
                     .font(.title2)
-                Text("Jabber")
+                Text("Nuntius")
                     .font(.headline)
             }
 

@@ -10,13 +10,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private let hotkeyManager = HotkeyManager()
     private let audioCapture = AudioCaptureService()
-    private let whisperService = WhisperService()
+    private let coordinator = TranscriptionCoordinator.shared
+    private let networkMonitor = NetworkMonitor.shared
     private let outputManager = OutputManager()
     private let overlayWindow = OverlayWindow()
     private let downloadOverlay = DownloadOverlayWindow()
     let updaterController = UpdaterController()
 
-    private let logger = Logger(subsystem: "com.rselbach.jabber", category: "AppDelegate")
+    private let logger = Logger(subsystem: "com.chrismatix.nuntius", category: "AppDelegate")
 
     private var modelLoadTask: Task<Void, Never>?
     private var isModelLoadInProgress = false
@@ -57,6 +58,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Hide dock icon (menu bar app only)
         NSApp.setActivationPolicy(.accessory)
 
+        // Start network monitoring
+        networkMonitor.startMonitoring()
+
         updaterController.checkForUpdatesOnLaunchIfNeeded()
 
         modelLoadTask = Task { [weak self] in
@@ -68,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         modelLoadTask?.cancel()
         cancelDictation()
+        networkMonitor.stopMonitoring()
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -92,7 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cancelDictation()
         modelLoadTask = Task { [weak self] in
             guard let self else { return }
-            await whisperService.unloadModel()
+            await coordinator.unloadLocalModel()
             if Task.isCancelled { return }
             await loadModel()
         }
@@ -109,14 +114,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        whisperService.setStateCallback { [weak self] state in
+        coordinator.setWhisperStateCallback { [weak self] state in
             Task { @MainActor in
                 self?.handleModelState(state)
             }
         }
 
         do {
-            try await whisperService.ensureModelLoaded()
+            try await coordinator.ensureLocalModelLoaded()
         } catch is CancellationError {
             return
         } catch {
@@ -185,14 +190,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        button.image = NSImage(systemSymbolName: iconName, accessibilityDescription: "Jabber")
+        button.image = NSImage(systemSymbolName: iconName, accessibilityDescription: "Nuntius")
     }
 
     private func setupMenuBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Jabber")
+            button.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Nuntius")
             button.action = #selector(togglePopover)
             button.target = self
         }
@@ -232,7 +237,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleHotkeyDown() {
-        guard whisperService.isReady else { return }
+        guard coordinator.isReady else { return }
 
         switch dictationState {
         case .idle:
@@ -263,8 +268,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startDictation() {
-        guard whisperService.isReady else {
-            // Model not ready yet, ignore
+        guard coordinator.isReady else {
+            // Service not ready yet, ignore
             return
         }
 
@@ -331,16 +336,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             try Task.checkCancellation()
 
-            // Sync vocabulary prompt and language from settings
-            let vocab = UserDefaults.standard.string(forKey: "vocabularyPrompt") ?? ""
-            await whisperService.setVocabularyPrompt(vocab)
-
-            let language = UserDefaults.standard.string(forKey: "selectedLanguage") ?? Constants.defaultLanguage
-            await whisperService.setLanguage(language)
-
-            try Task.checkCancellation()
-
-            let text = try await whisperService.transcribe(samples: samples)
+            let text = try await coordinator.transcribe(samples: samples)
 
             try Task.checkCancellation()
 

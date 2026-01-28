@@ -22,7 +22,7 @@ struct ModelDownloadState {
 @Observable
 final class ModelManager {
     static let shared = ModelManager()
-    private let logger = Logger(subsystem: "com.rselbach.jabber", category: "ModelManager")
+    private let logger = Logger(subsystem: "com.chrismatix.nuntius", category: "ModelManager")
     private static let downloadWaitTimeout: Duration = .seconds(600)
 
     struct Model: Identifiable {

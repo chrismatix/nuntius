@@ -6,7 +6,7 @@ import os
 @MainActor
 final class UpdaterController: ObservableObject {
     private var updaterController: SPUStandardUpdaterController?
-    private let logger = Logger(subsystem: "com.rselbach.jabber", category: "UpdaterController")
+    private let logger = Logger(subsystem: "com.chrismatix.nuntius", category: "UpdaterController")
     private var cancellables = Set<AnyCancellable>()
     private var didScheduleLaunchCheck = false
 

@@ -10,7 +10,7 @@ final class OutputManager {
         case pasteInPlace = "paste"
     }
 
-    private let logger = Logger(subsystem: "com.rselbach.jabber", category: "OutputManager")
+    private let logger = Logger(subsystem: "com.chrismatix.nuntius", category: "OutputManager")
     private static let pasteDelay: TimeInterval = 0.05
 
     var mode: OutputMode {

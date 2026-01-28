@@ -48,7 +48,7 @@ actor WhisperService {
     private var loadGeneration: UInt64 = 0
 
     nonisolated let stateObserver = WhisperStateObserver()
-    private let logger = Logger(subsystem: "com.rselbach.jabber", category: "WhisperService")
+    private let logger = Logger(subsystem: "com.chrismatix.nuntius", category: "WhisperService")
     private static let loadTimeout: Duration = .seconds(600)
 
     enum State: Sendable {

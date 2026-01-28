@@ -6,7 +6,7 @@ import os
 final class NotificationService {
     static let shared = NotificationService()
 
-    private let logger = Logger(subsystem: "com.rselbach.jabber", category: "NotificationService")
+    private let logger = Logger(subsystem: "com.chrismatix.nuntius", category: "NotificationService")
     private let notificationCenter: UNUserNotificationCenter?
     private let isValidBundle: Bool
     private var isAuthorized = false

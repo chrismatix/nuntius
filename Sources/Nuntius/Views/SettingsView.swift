@@ -8,12 +8,21 @@ struct SettingsView: View {
     @AppStorage("hotkeyDisplay") private var hotkeyDisplay = "⌥ Space"
     @AppStorage("vocabularyPrompt") private var vocabularyPrompt = ""
     @AppStorage("selectedLanguage") private var selectedLanguage = Constants.defaultLanguage
+    @AppStorage("transcriptionService") private var transcriptionService = "local"
+    @AppStorage("openAIKeyValidated") private var openAIKeyValidated = false
+    @AppStorage("openAIModel") private var openAIModel = Constants.OpenAI.defaultModel.rawValue
 
     @State private var modelManager = ModelManager.shared
+    @State private var coordinator = TranscriptionCoordinator.shared
     @State private var errorMessage: String?
     @State private var showError = false
 
     @State private var selectedTab = "general"
+
+    // Cloud tab state
+    @State private var apiKeyInput = ""
+    @State private var isValidatingKey = false
+    @State private var validationError: String?
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -33,6 +42,12 @@ struct SettingsView: View {
                 .tag("vocabulary")
                 .tabItem {
                     Label("Vocabulary", systemImage: "text.book.closed")
+                }
+
+            cloudTab
+                .tag("cloud")
+                .tabItem {
+                    Label("Cloud", systemImage: "cloud")
                 }
         }
         .frame(width: 520, height: 560)
@@ -171,6 +186,189 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var cloudTab: some View {
+        Form {
+            Section {
+                Picker("Transcription Service", selection: $transcriptionService) {
+                    Text("Local (WhisperKit)").tag("local")
+                    if openAIKeyValidated {
+                        Text("OpenAI Cloud").tag("openai")
+                    } else {
+                        Text("OpenAI Cloud (API key required)").tag("openai")
+                    }
+                }
+                .pickerStyle(.radioGroup)
+                .onChange(of: transcriptionService) { _, newValue in
+                    // Prevent selecting OpenAI without a validated key
+                    if newValue == "openai" && !openAIKeyValidated {
+                        transcriptionService = "local"
+                        return
+                    }
+                    if let service = TranscriptionCoordinator.ServiceType(rawValue: newValue) {
+                        coordinator.selectService(service)
+                    }
+                }
+
+                if transcriptionService == "local" {
+                    Text("Uses on-device WhisperKit models. Works offline.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Uses OpenAI cloud transcription. Falls back to local when offline.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Service")
+            }
+
+            if transcriptionService == "openai" {
+                Section {
+                    Picker("Model", selection: $openAIModel) {
+                        ForEach(Constants.OpenAI.TranscriptionModel.allCases, id: \.rawValue) { model in
+                            VStack(alignment: .leading) {
+                                Text(model.displayName)
+                            }
+                            .tag(model.rawValue)
+                        }
+                    }
+                    .pickerStyle(.radioGroup)
+
+                    if let selectedModel = Constants.OpenAI.TranscriptionModel(rawValue: openAIModel) {
+                        Text(selectedModel.description)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("OpenAI Model")
+                }
+            }
+
+            Section {
+                HStack {
+                    SecureField("OpenAI API Key", text: $apiKeyInput)
+                        .textFieldStyle(.roundedBorder)
+
+                    if isValidatingKey {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else if openAIKeyValidated {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    } else if validationError != nil {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.red)
+                    }
+
+                    Button("Validate") {
+                        validateAPIKey()
+                    }
+                    .disabled(apiKeyInput.isEmpty || isValidatingKey)
+                }
+
+                if let error = validationError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+
+                if openAIKeyValidated {
+                    HStack {
+                        Text("API key validated and stored securely in Keychain.")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+
+                        Spacer()
+
+                        Button("Remove Key") {
+                            removeAPIKey()
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.red)
+                    }
+                } else {
+                    Text("Your API key is stored securely in the macOS Keychain.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("OpenAI API Key")
+            }
+
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("How to get an API key:")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("1. Visit platform.openai.com")
+                        Text("2. Sign in or create an account")
+                        Text("3. Go to API Keys in your account settings")
+                        Text("4. Create a new secret key and paste it above")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Help")
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear {
+            // Load existing key if available (masked)
+            if openAIKeyValidated {
+                apiKeyInput = "sk-••••••••••••••••"
+            }
+        }
+    }
+
+    private func validateAPIKey() {
+        guard !apiKeyInput.isEmpty else { return }
+        // Don't validate if it's the masked placeholder
+        guard !apiKeyInput.hasPrefix("sk-••") else { return }
+
+        isValidatingKey = true
+        validationError = nil
+
+        Task {
+            do {
+                let isValid = try await OpenAITranscriptionService.shared.validateAPIKey(apiKeyInput)
+                await MainActor.run {
+                    isValidatingKey = false
+                    if isValid {
+                        openAIKeyValidated = true
+                        apiKeyInput = "sk-••••••••••••••••"
+                        validationError = nil
+                    } else {
+                        validationError = "Invalid API key. Please check and try again."
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    isValidatingKey = false
+                    validationError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func removeAPIKey() {
+        Task {
+            await OpenAITranscriptionService.shared.clearAPIKey()
+            await MainActor.run {
+                openAIKeyValidated = false
+                apiKeyInput = ""
+                validationError = nil
+                // Switch back to local if currently using OpenAI
+                if transcriptionService == "openai" {
+                    transcriptionService = "local"
+                    coordinator.selectService(.local)
+                }
+            }
+        }
     }
 }
 

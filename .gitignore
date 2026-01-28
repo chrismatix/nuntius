@@ -6,7 +6,7 @@ Package.resolved
 .claude/
 .opencode/
 CLAUDE.md
-AGENTS.md 
+AGENTS.md
 
 # Xcode
 *.xcodeproj/

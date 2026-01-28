@@ -7,7 +7,7 @@ final class OverlayWindow {
     private var window: NSPanel?
     private var waveformView: WaveformView?
     private var hostingView: NSHostingView<WaveformContainer>?
-    private let logger = Logger(subsystem: "com.rselbach.jabber", category: "OverlayWindow")
+    private let logger = Logger(subsystem: "com.chrismatix.nuntius", category: "OverlayWindow")
 
     func show() {
         if window == nil {
@@ -46,7 +46,7 @@ final class OverlayWindow {
         let screenFrame = screen.visibleFrame
 
         let windowWidth: CGFloat = 400
-        let windowHeight: CGFloat = 60
+        let windowHeight: CGFloat = 80
         let bottomMargin: CGFloat = 100
 
         let x = screenFrame.origin.x + (screenFrame.width - windowWidth) / 2
@@ -90,26 +90,58 @@ enum OverlayPanelFactory {
 
 struct WaveformContainer: View {
     @ObservedObject var waveformView: WaveformView
+    @State private var coordinator = TranscriptionCoordinator.shared
+    @AppStorage("selectedModel") private var selectedLocalModel = "base"
+    @AppStorage("openAIModel") private var openAIModel = Constants.OpenAI.defaultModel.rawValue
+
+    private var modelLabel: String {
+        let effectiveService = coordinator.effectiveService
+        switch effectiveService {
+        case .local:
+            return selectedLocalModel.capitalized
+        case .openai:
+            if let model = Constants.OpenAI.TranscriptionModel(rawValue: openAIModel) {
+                return model.displayName
+            }
+            return "OpenAI"
+        }
+    }
+
+    private var serviceIcon: String {
+        coordinator.effectiveService == .openai ? "cloud.fill" : "desktopcomputer"
+    }
 
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 12)
                 .fill(.ultraThinMaterial)
 
-            if waveformView.isProcessing {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Transcribing...")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+            VStack(spacing: 4) {
+                if waveformView.isProcessing {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Transcribing...")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(height: 40)
+                } else {
+                    WaveformShape(levels: waveformView.levels)
+                        .stroke(Color.accentColor, lineWidth: 2)
+                        .frame(height: 40)
+                        .padding(.horizontal, 20)
                 }
-            } else {
-                WaveformShape(levels: waveformView.levels)
-                    .stroke(Color.accentColor, lineWidth: 2)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 15)
+
+                HStack(spacing: 4) {
+                    Image(systemName: serviceIcon)
+                        .font(.caption2)
+                    Text(modelLabel)
+                        .font(.caption2)
+                }
+                .foregroundStyle(.secondary)
             }
+            .padding(.vertical, 10)
         }
     }
 }
