@@ -53,6 +53,54 @@ enum Constants {
         static let keychainService = "com.chrismatix.nuntius.openai"
     }
 
+    /// Unified model representation for both local and cloud models
+    struct UnifiedModel: Identifiable, Hashable {
+        enum ModelType: Hashable {
+            case local
+            case cloud(OpenAI.TranscriptionModel)
+        }
+
+        let id: String
+        let name: String
+        let description: String
+        let sizeOrCost: String
+        let type: ModelType
+
+        var isCloud: Bool {
+            if case .cloud = type { return true }
+            return false
+        }
+
+        var cloudModel: OpenAI.TranscriptionModel? {
+            if case .cloud(let model) = type { return model }
+            return nil
+        }
+
+        /// Creates a unified model from a local ModelManager.Model
+        static func fromLocal(_ model: ModelManager.Model) -> UnifiedModel {
+            UnifiedModel(
+                id: model.id,
+                name: model.name,
+                description: model.description,
+                sizeOrCost: model.sizeHint,
+                type: .local
+            )
+        }
+
+        /// Creates unified models for all available OpenAI cloud models
+        static func cloudModels() -> [UnifiedModel] {
+            OpenAI.TranscriptionModel.allCases.map { model in
+                UnifiedModel(
+                    id: "openai:\(model.rawValue)",
+                    name: model.displayName,
+                    description: model.description,
+                    sizeOrCost: "Cloud",
+                    type: .cloud(model)
+                )
+            }
+        }
+    }
+
     /// Supported Whisper transcription languages (from WhisperKit)
     static let languages: [String: String] = [
         "afrikaans": "af", "albanian": "sq", "amharic": "am", "arabic": "ar",

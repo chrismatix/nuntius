@@ -141,6 +141,8 @@ struct SettingsView: View {
                             let previousModelId = selectedModel
                             guard modelManager.selectModel(model.id, previousModelId: previousModelId) else { return }
                             selectedModel = model.id
+                            transcriptionService = "local"
+                            coordinator.selectService(.local)
                         },
                         onDownload: {
                             Task {
@@ -165,7 +167,43 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } header: {
-                Text("Transcription Models")
+                Text("Local Models")
+            }
+
+            if openAIKeyValidated {
+                Section {
+                    ForEach(Constants.UnifiedModel.cloudModels()) { cloudModel in
+                        CloudModelRow(
+                            model: cloudModel,
+                            isSelected: transcriptionService == "openai" && openAIModel == cloudModel.cloudModel?.rawValue,
+                            onSelect: {
+                                if let model = cloudModel.cloudModel {
+                                    openAIModel = model.rawValue
+                                    transcriptionService = "openai"
+                                    coordinator.selectService(.openai)
+                                }
+                            }
+                        )
+                    }
+
+                    Text("Cloud models require internet. Falls back to local model when offline.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text("Cloud Models (OpenAI)")
+                }
+            } else {
+                Section {
+                    HStack {
+                        Image(systemName: "cloud")
+                            .foregroundStyle(.secondary)
+                        Text("Configure an OpenAI API key in the Cloud tab to enable cloud models.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("Cloud Models")
+                }
             }
         }
         .formStyle(.grouped)
@@ -191,59 +229,27 @@ struct SettingsView: View {
     private var cloudTab: some View {
         Form {
             Section {
-                Picker("Transcription Service", selection: $transcriptionService) {
-                    Text("Local (WhisperKit)").tag("local")
-                    if openAIKeyValidated {
-                        Text("OpenAI Cloud").tag("openai")
-                    } else {
-                        Text("OpenAI Cloud (API key required)").tag("openai")
+                if openAIKeyValidated {
+                    HStack {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                        Text("OpenAI cloud models are enabled")
                     }
-                }
-                .pickerStyle(.radioGroup)
-                .onChange(of: transcriptionService) { _, newValue in
-                    // Prevent selecting OpenAI without a validated key
-                    if newValue == "openai" && !openAIKeyValidated {
-                        transcriptionService = "local"
-                        return
-                    }
-                    if let service = TranscriptionCoordinator.ServiceType(rawValue: newValue) {
-                        coordinator.selectService(service)
-                    }
-                }
-
-                if transcriptionService == "local" {
-                    Text("Uses on-device WhisperKit models. Works offline.")
+                    Text("Select a cloud model in the Models tab to use OpenAI transcription.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    Text("Uses OpenAI cloud transcription. Falls back to local when offline.")
+                    HStack {
+                        Image(systemName: "exclamationmark.circle")
+                            .foregroundStyle(.orange)
+                        Text("API key required to enable cloud models")
+                    }
+                    Text("Add your OpenAI API key below to unlock cloud transcription models.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             } header: {
-                Text("Service")
-            }
-
-            if transcriptionService == "openai" {
-                Section {
-                    Picker("Model", selection: $openAIModel) {
-                        ForEach(Constants.OpenAI.TranscriptionModel.allCases, id: \.rawValue) { model in
-                            VStack(alignment: .leading) {
-                                Text(model.displayName)
-                            }
-                            .tag(model.rawValue)
-                        }
-                    }
-                    .pickerStyle(.radioGroup)
-
-                    if let selectedModel = Constants.OpenAI.TranscriptionModel(rawValue: openAIModel) {
-                        Text(selectedModel.description)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                } header: {
-                    Text("OpenAI Model")
-                }
+                Text("Status")
             }
 
             Section {
@@ -480,6 +486,47 @@ struct ModelRow: View {
             onDownload()
         }
         .buttonStyle(.bordered)
+    }
+}
+
+struct CloudModelRow: View {
+    let model: Constants.UnifiedModel
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(model.name)
+                        .fontWeight(isSelected ? .semibold : .regular)
+
+                    Image(systemName: "cloud.fill")
+                        .font(.caption)
+                        .foregroundStyle(.blue)
+                }
+
+                Text(model.description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.tint)
+            } else {
+                Button("Select") {
+                    onSelect()
+                }
+                .buttonStyle(.borderless)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onSelect()
+        }
     }
 }
 
