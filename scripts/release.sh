@@ -1,13 +1,13 @@
 #!/bin/bash
 #
-# Jabber Release Script
-# Builds, signs, notarizes, and packages Jabber.app into a DMG.
+# Nuntius Release Script
+# Builds, signs, notarizes, and packages Nuntius.app into a DMG.
 #
 # Prerequisites:
 #   - Xcode Command Line Tools
 #   - Developer ID Application certificate in keychain
 #   - App-specific password for notarization stored in keychain:
-#       xcrun notarytool store-credentials "jabber-notary" \
+#       xcrun notarytool store-credentials "nuntius-notary" \
 #         --apple-id "your@email.com" \
 #         --team-id "YOUR_TEAM_ID" \
 #         --password "app-specific-password"
@@ -19,12 +19,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "${SCRIPT_DIR}")"
-APP_NAME="Jabber"
-BUNDLE_ID="com.rselbach.jabber"
+APP_NAME="Nuntius"
+BUNDLE_ID="com.chrismatix.nuntius"
 
 # Configurable via environment
 SIGNING_IDENTITY="${SIGNING_IDENTITY:-Developer ID Application}"
-NOTARY_PROFILE="${NOTARY_PROFILE:-jabber-notary}"
+NOTARY_PROFILE="${NOTARY_PROFILE:-nuntius-notary}"
 BUILD_DIR="${PROJECT_ROOT}/.build/release-bundle"
 DMG_DIR="${PROJECT_ROOT}/.build/dmg"
 
@@ -40,23 +40,23 @@ usage() {
 
 main() {
   parse_args "$@"
-  
+
   echo "==> Building ${APP_NAME} for release..."
   build_app
-  
+
   echo "==> Creating app bundle..."
   create_bundle
-  
+
   echo "==> Signing app bundle..."
   sign_app
-  
+
   if [[ "${SKIP_NOTARIZE}" == "false" ]]; then
     echo "==> Creating DMG for notarization..."
     create_dmg
-    
+
     echo "==> Notarizing DMG..."
     notarize_dmg
-    
+
     echo "==> Stapling notarization ticket..."
     staple_dmg
   else
@@ -64,7 +64,7 @@ main() {
     echo "==> Creating DMG..."
     create_dmg
   fi
-  
+
   echo ""
   echo "==> Release complete!"
   echo "    DMG: ${DMG_DIR}/${APP_NAME}.dmg"
@@ -99,16 +99,16 @@ create_bundle() {
   local macos="${contents}/MacOS"
   local resources="${contents}/Resources"
   local frameworks="${contents}/Frameworks"
-  
+
   rm -rf "${BUILD_DIR}"
   mkdir -p "${macos}" "${resources}" "${frameworks}"
-  
+
   # Copy executable
-  cp "${PROJECT_ROOT}/.build/release/Jabber" "${macos}/${APP_NAME}"
-  
+  cp "${PROJECT_ROOT}/.build/release/Nuntius" "${macos}/${APP_NAME}"
+
   # Copy Info.plist
   cp "${PROJECT_ROOT}/Info.plist" "${contents}/Info.plist"
-  
+
   # Copy Sparkle.framework into the bundle
   local sparkle_path="${PROJECT_ROOT}/.build/artifacts/sparkle/Sparkle/Sparkle.framework"
   if [[ -d "${sparkle_path}" ]]; then
@@ -121,26 +121,26 @@ create_bundle() {
       echo "    Copied Sparkle.framework"
     fi
   fi
-  
+
   # Add rpath for Frameworks directory
   install_name_tool -add_rpath @executable_path/../Frameworks "${macos}/${APP_NAME}"
-  
+
   # Copy resources from the build (SwiftPM bundles assets here)
-  local bundle_resources="${PROJECT_ROOT}/.build/release/Jabber_Jabber.bundle"
+  local bundle_resources="${PROJECT_ROOT}/.build/release/Nuntius_Nuntius.bundle"
   if [[ -d "${bundle_resources}" ]]; then
     cp -R "${bundle_resources}/"* "${resources}/"
   fi
-  
+
   # Copy Assets.xcassets icons directly (actool compile)
   compile_assets "${resources}"
-  
+
   echo "    Bundle created at: ${app_bundle}"
 }
 
 compile_assets() {
   local resources_dir="$1"
-  local assets_path="${PROJECT_ROOT}/Sources/Jabber/Assets.xcassets"
-  
+  local assets_path="${PROJECT_ROOT}/Sources/Nuntius/Assets.xcassets"
+
   if [[ -d "${assets_path}" ]]; then
     xcrun actool "${assets_path}" \
       --compile "${resources_dir}" \
@@ -154,25 +154,25 @@ compile_assets() {
 
 sign_app() {
   local app_bundle="${BUILD_DIR}/${APP_NAME}.app"
-  local entitlements="${PROJECT_ROOT}/Jabber.entitlements"
-  
+  local entitlements="${PROJECT_ROOT}/Nuntius.entitlements"
+
   # Sign Sparkle.framework first
   codesign --force --options runtime --deep \
     --sign "${SIGNING_IDENTITY}" \
     "${app_bundle}/Contents/Frameworks/Sparkle.framework"
-  
+
   # Sign the main executable
   codesign --force --options runtime \
     --entitlements "${entitlements}" \
     --sign "${SIGNING_IDENTITY}" \
     "${app_bundle}/Contents/MacOS/${APP_NAME}"
-  
+
   # Sign the app bundle
   codesign --force --options runtime \
     --entitlements "${entitlements}" \
     --sign "${SIGNING_IDENTITY}" \
     "${app_bundle}"
-  
+
   # Verify signature
   codesign --verify --deep --strict --verbose=2 "${app_bundle}"
   echo "    Signature verified"
@@ -182,53 +182,53 @@ create_dmg() {
   local app_bundle="${BUILD_DIR}/${APP_NAME}.app"
   local dmg_path="${DMG_DIR}/${APP_NAME}.dmg"
   local dmg_temp="${DMG_DIR}/${APP_NAME}-temp.dmg"
-  
+
   rm -rf "${DMG_DIR}"
   mkdir -p "${DMG_DIR}"
-  
+
   # Create a temporary DMG
   local staging="${DMG_DIR}/staging"
   mkdir -p "${staging}"
   cp -R "${app_bundle}" "${staging}/"
-  
+
   # Create Applications symlink
   ln -s /Applications "${staging}/Applications"
-  
+
   # Create DMG
   hdiutil create -volname "${APP_NAME}" \
     -srcfolder "${staging}" \
     -ov -format UDRW \
     "${dmg_temp}"
-  
+
   # Convert to compressed read-only DMG
   hdiutil convert "${dmg_temp}" \
     -format UDZO \
     -imagekey zlib-level=9 \
     -o "${dmg_path}"
-  
+
   rm -f "${dmg_temp}"
   rm -rf "${staging}"
-  
+
   # Sign the DMG
   codesign --force --sign "${SIGNING_IDENTITY}" "${dmg_path}"
-  
+
   echo "    DMG created at: ${dmg_path}"
 }
 
 notarize_dmg() {
   local dmg_path="${DMG_DIR}/${APP_NAME}.dmg"
-  
+
   echo "    Submitting to Apple for notarization..."
   xcrun notarytool submit "${dmg_path}" \
     --keychain-profile "${NOTARY_PROFILE}" \
     --wait
-  
+
   echo "    Notarization complete"
 }
 
 staple_dmg() {
   local dmg_path="${DMG_DIR}/${APP_NAME}.dmg"
-  
+
   xcrun stapler staple "${dmg_path}"
   echo "    Stapled notarization ticket to DMG"
 }

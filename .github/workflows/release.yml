@@ -18,7 +18,7 @@ permissions:
 jobs:
   build:
     runs-on: macos-14
-    
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -53,11 +53,11 @@ jobs:
         run: |
           KEYCHAIN_PATH="${RUNNER_TEMP}/signing.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
-          
+
           security create-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
           security set-keychain-settings -lut 21600 "${KEYCHAIN_PATH}"
           security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
-          
+
           echo "${CERTIFICATE_P12}" | base64 --decode > "${RUNNER_TEMP}/certificate.p12"
           security import "${RUNNER_TEMP}/certificate.p12" \
             -P "${CERTIFICATE_PASSWORD}" \
@@ -65,29 +65,29 @@ jobs:
             -t cert \
             -f pkcs12 \
             -k "${KEYCHAIN_PATH}"
-          
+
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
           security list-keychain -d user -s "${KEYCHAIN_PATH}" login.keychain-db
-          
+
           rm "${RUNNER_TEMP}/certificate.p12"
 
       - name: Create app bundle
         run: |
-          APP_BUNDLE=".build/release-bundle/Jabber.app"
+          APP_BUNDLE=".build/release-bundle/Nuntius.app"
           CONTENTS="${APP_BUNDLE}/Contents"
           mkdir -p "${CONTENTS}/MacOS" "${CONTENTS}/Resources" "${CONTENTS}/Frameworks"
-          
-          cp .build/release/Jabber "${CONTENTS}/MacOS/Jabber"
+
+          cp .build/release/Nuntius "${CONTENTS}/MacOS/Nuntius"
           cp Info.plist "${CONTENTS}/Info.plist"
-          
+
           # Copy Sparkle.framework into the bundle
           SPARKLE_PATH=$(find .build -name "Sparkle.framework" -type d | head -1)
           cp -R "${SPARKLE_PATH}" "${CONTENTS}/Frameworks/"
-          
+
           # Add rpath for Frameworks directory
-          install_name_tool -add_rpath @executable_path/../Frameworks "${CONTENTS}/MacOS/Jabber"
-          
-          xcrun actool Sources/Jabber/Assets.xcassets \
+          install_name_tool -add_rpath @executable_path/../Frameworks "${CONTENTS}/MacOS/Nuntius"
+
+          xcrun actool Sources/Nuntius/Assets.xcassets \
             --compile "${CONTENTS}/Resources" \
             --platform macosx \
             --minimum-deployment-target 14.0 \
@@ -99,42 +99,42 @@ jobs:
           # Sign Sparkle.framework first
           codesign --force --options runtime --deep \
             --sign "Developer ID Application" \
-            .build/release-bundle/Jabber.app/Contents/Frameworks/Sparkle.framework
-          
+            .build/release-bundle/Nuntius.app/Contents/Frameworks/Sparkle.framework
+
           # Sign the main executable
           codesign --force --options runtime \
-            --entitlements Jabber.entitlements \
+            --entitlements Nuntius.entitlements \
             --sign "Developer ID Application" \
-            .build/release-bundle/Jabber.app/Contents/MacOS/Jabber
-          
+            .build/release-bundle/Nuntius.app/Contents/MacOS/Nuntius
+
           # Sign the app bundle
           codesign --force --options runtime \
-            --entitlements Jabber.entitlements \
+            --entitlements Nuntius.entitlements \
             --sign "Developer ID Application" \
-            .build/release-bundle/Jabber.app
-          
-          codesign --verify --deep --strict --verbose=2 .build/release-bundle/Jabber.app
+            .build/release-bundle/Nuntius.app
+
+          codesign --verify --deep --strict --verbose=2 .build/release-bundle/Nuntius.app
 
       - name: Create DMG
         run: |
           mkdir -p .build/dmg/staging
-          cp -R .build/release-bundle/Jabber.app .build/dmg/staging/
+          cp -R .build/release-bundle/Nuntius.app .build/dmg/staging/
           ln -s /Applications .build/dmg/staging/Applications
-          
-          hdiutil create -volname "Jabber" \
+
+          hdiutil create -volname "Nuntius" \
             -srcfolder .build/dmg/staging \
             -ov -format UDRW \
-            .build/dmg/Jabber-temp.dmg
-          
-          hdiutil convert .build/dmg/Jabber-temp.dmg \
+            .build/dmg/Nuntius-temp.dmg
+
+          hdiutil convert .build/dmg/Nuntius-temp.dmg \
             -format UDZO \
             -imagekey zlib-level=9 \
-            -o .build/dmg/Jabber.dmg
-          
-          rm .build/dmg/Jabber-temp.dmg
+            -o .build/dmg/Nuntius.dmg
+
+          rm .build/dmg/Nuntius-temp.dmg
           rm -rf .build/dmg/staging
-          
-          codesign --force --sign "Developer ID Application" .build/dmg/Jabber.dmg
+
+          codesign --force --sign "Developer ID Application" .build/dmg/Nuntius.dmg
 
       - name: Notarize DMG
         env:
@@ -142,17 +142,17 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
-          xcrun notarytool submit .build/dmg/Jabber.dmg \
+          xcrun notarytool submit .build/dmg/Nuntius.dmg \
             --apple-id "${APPLE_ID}" \
             --team-id "${APPLE_TEAM_ID}" \
             --password "${APPLE_APP_PASSWORD}" \
             --wait
-          
-          xcrun stapler staple .build/dmg/Jabber.dmg
+
+          xcrun stapler staple .build/dmg/Nuntius.dmg
 
       - name: Rename DMG with version
         run: |
-          mv .build/dmg/Jabber.dmg ".build/dmg/Jabber-${{ steps.version.outputs.version }}.dmg"
+          mv .build/dmg/Nuntius.dmg ".build/dmg/Nuntius-${{ steps.version.outputs.version }}.dmg"
 
       - name: Download Sparkle tools
         run: |
@@ -164,7 +164,7 @@ jobs:
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_EDDSA_PRIVATE_KEY }}
         run: |
-          SIGNATURE=$(/tmp/sparkle/bin/sign_update ".build/dmg/Jabber-${{ steps.version.outputs.version }}.dmg" --ed-key-file <(echo "$SPARKLE_PRIVATE_KEY"))
+          SIGNATURE=$(/tmp/sparkle/bin/sign_update ".build/dmg/Nuntius-${{ steps.version.outputs.version }}.dmg" --ed-key-file <(echo "$SPARKLE_PRIVATE_KEY"))
 
           if [[ -z "$SIGNATURE" ]]; then
             echo "Error: Failed to generate Sparkle signature"
@@ -182,14 +182,14 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           DATE=$(date -R)
-          
+
           mkdir -p _site
           printf '%s\n' '<?xml version="1.0" encoding="utf-8"?>' > _site/appcast.xml
           printf '%s\n' '<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">' >> _site/appcast.xml
           printf '%s\n' '  <channel>' >> _site/appcast.xml
-          printf '%s\n' '    <title>Jabber Updates</title>' >> _site/appcast.xml
-          printf '%s\n' '    <link>https://rselbach.github.io/jabber/appcast.xml</link>' >> _site/appcast.xml
-          printf '%s\n' '    <description>Jabber app updates</description>' >> _site/appcast.xml
+          printf '%s\n' '    <title>Nuntius Updates</title>' >> _site/appcast.xml
+          printf '%s\n' '    <link>https://chrismatix.github.io/nuntius/appcast.xml</link>' >> _site/appcast.xml
+          printf '%s\n' '    <description>Nuntius app updates</description>' >> _site/appcast.xml
           printf '%s\n' '    <language>en</language>' >> _site/appcast.xml
           printf '%s\n' '    <item>' >> _site/appcast.xml
           printf '%s\n' "      <title>Version ${VERSION}</title>" >> _site/appcast.xml
@@ -197,7 +197,7 @@ jobs:
           printf '%s\n' "      <sparkle:version>${{ github.run_number }}</sparkle:version>" >> _site/appcast.xml
           printf '%s\n' "      <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>" >> _site/appcast.xml
           printf '%s\n' "      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>" >> _site/appcast.xml
-          printf '%s\n' "      <enclosure url=\"https://github.com/rselbach/jabber/releases/download/v${VERSION}/Jabber-${VERSION}.dmg\" ${SPARKLE_SIGNATURE} type=\"application/octet-stream\"/>" >> _site/appcast.xml
+          printf '%s\n' "      <enclosure url=\"https://github.com/chrismatix/nuntius/releases/download/v${VERSION}/Nuntius-${VERSION}.dmg\" ${SPARKLE_SIGNATURE} type=\"application/octet-stream\"/>" >> _site/appcast.xml
           printf '%s\n' '    </item>' >> _site/appcast.xml
           printf '%s\n' '  </channel>' >> _site/appcast.xml
           printf '%s\n' '</rss>' >> _site/appcast.xml
@@ -210,14 +210,14 @@ jobs:
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Jabber-${{ steps.version.outputs.version }}
-          path: .build/dmg/Jabber-${{ steps.version.outputs.version }}.dmg
+          name: Nuntius-${{ steps.version.outputs.version }}
+          path: .build/dmg/Nuntius-${{ steps.version.outputs.version }}.dmg
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: .build/dmg/Jabber-${{ steps.version.outputs.version }}.dmg
+          files: .build/dmg/Nuntius-${{ steps.version.outputs.version }}.dmg
           generate_release_notes: true
 
       - name: Cleanup keychain

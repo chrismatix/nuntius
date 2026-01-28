@@ -5,10 +5,10 @@ import os
 final class AudioCaptureService {
     private let engine = AVAudioEngine()
     private let targetSampleRate: Double = 16_000
-    private let converterQueue = DispatchQueue(label: "com.jabber.audioconverter")
+    private let converterQueue = DispatchQueue(label: "com.chrismatix.nuntius.audioconverter")
     private var converter: AVAudioConverter?
 
-    private let queue = DispatchQueue(label: "com.jabber.audiocapture")
+    private let queue = DispatchQueue(label: "com.chrismatix.nuntius.audiocapture")
     private var capturedSamples: [Float] = []
     private var _isCapturing = false
     private let logger = Logger(subsystem: "com.chrismatix.nuntius", category: "AudioCaptureService")
