@@ -11,6 +11,7 @@ final class AudioCaptureService {
     private let queue = DispatchQueue(label: "com.chrismatix.nuntius.audiocapture")
     private var capturedSamples: [Float] = []
     private var _isCapturing = false
+    private var _isEngineRunning = false
     private let logger = Logger(subsystem: "com.chrismatix.nuntius", category: "AudioCaptureService")
 
     var onAudioLevel: ((Float) -> Void)?
@@ -21,6 +22,11 @@ final class AudioCaptureService {
         set { queue.sync { _isCapturing = newValue } }
     }
 
+    private var isEngineRunning: Bool {
+        get { queue.sync { _isEngineRunning } }
+        set { queue.sync { _isEngineRunning = newValue } }
+    }
+
     private func getConverter() -> AVAudioConverter? {
         converterQueue.sync { converter }
     }
@@ -29,13 +35,11 @@ final class AudioCaptureService {
         converterQueue.sync { converter = newConverter }
     }
 
-    func startCapture() throws {
-        guard !isCapturing else { return }
+    /// Warms up the audio engine by starting it without collecting samples.
+    /// This keeps the microphone hardware active so recording can start instantly.
+    func warmUp() throws {
+        guard !isEngineRunning else { return }
 
-        queue.sync { capturedSamples.removeAll() }
-
-        // Create a fresh engine for each recording session to ensure
-        // audio hardware is fully released when we stop
         let engine = AVAudioEngine()
         self.engine = engine
 
@@ -60,23 +64,51 @@ final class AudioCaptureService {
             self?.processBuffer(buffer)
         }
 
-        isCapturing = true
         do {
             try engine.start()
+            isEngineRunning = true
+            logger.info("Audio engine warmed up and running")
         } catch {
-            stopCapture()
+            shutDown()
             throw error
         }
     }
 
-    func stopCapture() {
-        guard isCapturing, let engine = engine else { return }
+    /// Shuts down the audio engine completely, releasing the microphone.
+    func shutDown() {
         isCapturing = false
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
-        engine.reset()
-        self.engine = nil  // Release engine to fully disconnect from audio hardware
+        isEngineRunning = false
+
+        if let engine = engine {
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+            engine.reset()
+        }
+        self.engine = nil
         setConverter(nil)
+        logger.info("Audio engine shut down")
+    }
+
+    func startCapture() throws {
+        guard !isCapturing else { return }
+
+        queue.sync { capturedSamples.removeAll() }
+
+        // If engine isn't already warm, start it now
+        if !isEngineRunning {
+            try warmUp()
+        }
+
+        isCapturing = true
+        logger.info("Audio capture started")
+    }
+
+    func stopCapture() {
+        guard isCapturing else { return }
+        isCapturing = false
+        logger.info("Audio capture stopped (engine still warm)")
+        // Note: We intentionally keep the engine running to avoid
+        // microphone warm-up delay on the next recording
     }
 
     func currentSamples() -> [Float] {
@@ -86,12 +118,17 @@ final class AudioCaptureService {
     private func processBuffer(_ buffer: AVAudioPCMBuffer) {
         // Safely capture converter reference before checking state
         guard let converter = getConverter() else { return }
-        guard isCapturing else { return }
 
-        let rms = calculateRms(from: buffer)
-        DispatchQueue.main.async { [weak self] in
-            self?.onAudioLevel?(rms)
+        // Always calculate audio level for visual feedback when capturing
+        if isCapturing {
+            let rms = calculateRms(from: buffer)
+            DispatchQueue.main.async { [weak self] in
+                self?.onAudioLevel?(rms)
+            }
         }
+
+        // Only collect samples when actively capturing
+        guard isCapturing else { return }
 
         let conversionResult = convertBuffer(buffer, using: converter)
         if let error = conversionResult.error {

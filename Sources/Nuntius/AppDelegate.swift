@@ -63,6 +63,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         updaterController.checkForUpdatesOnLaunchIfNeeded()
 
+        // Warm up the audio engine so microphone is ready instantly when recording starts.
+        // This avoids the ~2 second delay for microphone hardware initialization.
+        do {
+            try audioCapture.warmUp()
+        } catch {
+            logger.warning("Failed to warm up audio engine: \(error.localizedDescription)")
+            // Not critical - will try again when first recording starts
+        }
+
         modelLoadTask = Task { [weak self] in
             guard let self else { return }
             await loadModel()
@@ -72,6 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         modelLoadTask?.cancel()
         cancelDictation()
+        audioCapture.shutDown()
         networkMonitor.stopMonitoring()
         NotificationCenter.default.removeObserver(self)
     }
