@@ -20,8 +20,14 @@ enum Constants {
         /// Transcription API endpoint
         static let transcriptionEndpoint = "https://api.openai.com/v1/audio/transcriptions"
 
+        /// Chat completions API endpoint (for post-processing)
+        static let chatCompletionsEndpoint = "https://api.openai.com/v1/chat/completions"
+
         /// Models API endpoint for validation
         static let modelsEndpoint = "https://api.openai.com/v1/models"
+
+        /// Model used for post-processing transcriptions
+        static let postProcessingModel = "gpt-4o-mini"
 
         /// Available transcription models
         enum TranscriptionModel: String, CaseIterable {

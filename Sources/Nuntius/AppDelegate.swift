@@ -277,9 +277,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         transcriptionTask?.cancel()
         transcriptionTask = nil
 
-        overlayWindow.show()
-        downloadOverlay.hide()
-
         audioCapture.onAudioLevel = { [weak self] level in
             self?.overlayWindow.updateLevel(level)
         }
@@ -295,10 +292,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // Start audio capture BEFORE showing overlay to avoid missing the
+        // first 1-2 seconds while the audio engine initializes
         do {
             try audioCapture.startCapture()
             dictationState = .recording
             updateStatusIcon(state: .recording)
+
+            // Show overlay only after recording has actually started
+            overlayWindow.show()
+            downloadOverlay.hide()
         } catch {
             logger.error("Failed to start audio capture: \(error.localizedDescription)")
             dictationState = .idle
@@ -326,6 +329,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlayWindow.showProcessing()
 
         let currentID = dictationID
+        saveDebugAudioIfNeeded(samples: samples, dictationID: currentID)
         transcriptionTask = Task { [weak self] in
             guard let self else { return }
             await self.transcribeAndOutput(samples: samples, dictationID: currentID)
@@ -378,6 +382,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         audioCapture.stopCapture()
         overlayWindow.hide()
         syncNonDictationUI()
+    }
+
+    private func saveDebugAudioIfNeeded(samples: [Float], dictationID: UUID) {
+        guard UserDefaults.standard.bool(forKey: "debugSaveAudioToDesktop") else { return }
+
+        let samplesCopy = samples
+        let idSuffix = String(dictationID.uuidString.prefix(8))
+
+        DispatchQueue.global(qos: .utility).async {
+            let logger = Logger(subsystem: "com.chrismatix.nuntius", category: "DebugAudio")
+
+            guard let desktopURL = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first else {
+                logger.error("Could not locate Desktop directory for debug audio save")
+                return
+            }
+
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+            let timestamp = formatter.string(from: Date())
+
+            let filename = "Nuntius-Recording-\(timestamp)-\(idSuffix).wav"
+            let fileURL = desktopURL.appendingPathComponent(filename)
+
+            guard let wavData = AudioWAVEncoder.encode(samples: samplesCopy, sampleRate: 16000) else {
+                logger.error("Failed to encode WAV data for debug recording")
+                return
+            }
+
+            do {
+                try wavData.write(to: fileURL, options: .atomic)
+                logger.info("Saved debug audio to Desktop: \(fileURL.lastPathComponent)")
+            } catch {
+                logger.error("Failed to save debug audio: \(error.localizedDescription)")
+            }
+        }
     }
 
     @objc private func handleModelDownloadState(_ notification: Notification) {

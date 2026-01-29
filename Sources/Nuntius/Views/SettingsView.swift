@@ -11,6 +11,8 @@ struct SettingsView: View {
     @AppStorage("transcriptionService") private var transcriptionService = "local"
     @AppStorage("openAIKeyValidated") private var openAIKeyValidated = false
     @AppStorage("openAIModel") private var openAIModel = Constants.OpenAI.defaultModel.rawValue
+    @AppStorage("gptPostProcessingEnabled") private var gptPostProcessingEnabled = false
+    @AppStorage("debugSaveAudioToDesktop") private var debugSaveAudioToDesktop = false
 
     @State private var modelManager = ModelManager.shared
     @State private var coordinator = TranscriptionCoordinator.shared
@@ -124,6 +126,15 @@ struct SettingsView: View {
                 )
             } header: {
                 Text("Updates")
+            }
+
+            Section {
+                Toggle("Save recordings to Desktop", isOn: $debugSaveAudioToDesktop)
+                Text("Debug mode only. Saves a WAV file for each recording.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Debug")
             }
         }
         .formStyle(.grouped)
@@ -250,6 +261,18 @@ struct SettingsView: View {
                 }
             } header: {
                 Text("Status")
+            }
+
+            if openAIKeyValidated {
+                Section {
+                    Toggle("GPT post-processing", isOn: $gptPostProcessingEnabled)
+
+                    Text("Uses GPT to improve transcription formatting: adds punctuation, fixes capitalization, and corrects obvious errors.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text("Post-Processing")
+                }
             }
 
             Section {

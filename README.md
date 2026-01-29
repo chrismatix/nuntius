@@ -19,6 +19,12 @@ Download the latest DMG from [Releases](../../releases), open it, and drag Nunti
 swift build
 ```
 
+## Tests
+
+```bash
+swift test
+```
+
 For a release build with signing:
 
 ```bash

@@ -64,11 +64,11 @@ final class TranscriptionCoordinator {
     private init(
         whisperService: WhisperService = WhisperService(),
         openAIService: OpenAITranscriptionService = .shared,
-        networkMonitor: NetworkMonitor = .shared
+        networkMonitor: NetworkMonitor? = nil
     ) {
         self.whisperService = whisperService
         self.openAIService = openAIService
-        self.networkMonitor = networkMonitor
+        self.networkMonitor = networkMonitor ?? NetworkMonitor.shared
 
         // Load saved preference
         let savedService = UserDefaults.standard.string(forKey: "transcriptionService") ?? "local"
@@ -125,19 +125,26 @@ final class TranscriptionCoordinator {
     func transcribe(samples: [Float]) async throws -> String {
         let language = UserDefaults.standard.string(forKey: "selectedLanguage") ?? Constants.defaultLanguage
         let vocab = UserDefaults.standard.string(forKey: "vocabularyPrompt") ?? ""
+        let postProcessingEnabled = UserDefaults.standard.bool(forKey: "gptPostProcessingEnabled")
 
         // Determine which service to use
         if selectedService == .openai {
             if networkMonitor.isConnected && openAIService.isReady {
                 // Try OpenAI
                 do {
-                    let text = try await openAIService.transcribe(
+                    var text = try await openAIService.transcribe(
                         samples: samples,
                         language: language == "auto" ? nil : language,
                         prompt: vocab.isEmpty ? nil : vocab
                     )
                     isUsingFallback = false
                     fallbackReason = nil
+
+                    // Apply GPT post-processing if enabled
+                    if postProcessingEnabled && !text.isEmpty {
+                        text = try await applyPostProcessing(text)
+                    }
+
                     return text
                 } catch {
                     // OpenAI failed - fall back to local
@@ -166,6 +173,17 @@ final class TranscriptionCoordinator {
             isUsingFallback = false
             fallbackReason = nil
             return try await transcribeLocally(samples: samples, language: language, vocab: vocab)
+        }
+    }
+
+    /// Applies GPT post-processing to improve transcription formatting
+    private func applyPostProcessing(_ text: String) async throws -> String {
+        do {
+            return try await openAIService.postProcess(text: text)
+        } catch {
+            // If post-processing fails, log and return original text
+            logger.warning("Post-processing failed, using original transcription: \(error.localizedDescription)")
+            return text
         }
     }
 

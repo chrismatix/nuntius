@@ -168,7 +168,7 @@ actor OpenAITranscriptionService {
         }
 
         // Encode samples as WAV
-        guard let wavData = encodeWAV(samples: samples, sampleRate: 16000) else {
+        guard let wavData = AudioWAVEncoder.encode(samples: samples, sampleRate: 16000) else {
             throw OpenAITranscriptionError.audioEncodingFailed
         }
 
@@ -177,35 +177,40 @@ actor OpenAITranscriptionService {
         // Build multipart form data request
         let boundary = UUID().uuidString
         var body = Data()
+        func append(_ string: String) {
+            if let data = string.data(using: .utf8) {
+                body.append(data)
+            }
+        }
 
         // Add file field
-        body.append("--\(boundary)\r\n")
-        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n")
-        body.append("Content-Type: audio/wav\r\n\r\n")
+        append("--\(boundary)\r\n")
+        append("Content-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n")
+        append("Content-Type: audio/wav\r\n\r\n")
         body.append(wavData)
-        body.append("\r\n")
+        append("\r\n")
 
         // Add model field
         let modelId = UserDefaults.standard.string(forKey: "openAIModel") ?? Constants.OpenAI.defaultModel.rawValue
-        body.append("--\(boundary)\r\n")
-        body.append("Content-Disposition: form-data; name=\"model\"\r\n\r\n")
-        body.append("\(modelId)\r\n")
+        append("--\(boundary)\r\n")
+        append("Content-Disposition: form-data; name=\"model\"\r\n\r\n")
+        append("\(modelId)\r\n")
 
         // Add language field if specified
         if let language = language, language != "auto", !language.isEmpty {
-            body.append("--\(boundary)\r\n")
-            body.append("Content-Disposition: form-data; name=\"language\"\r\n\r\n")
-            body.append("\(language)\r\n")
+            append("--\(boundary)\r\n")
+            append("Content-Disposition: form-data; name=\"language\"\r\n\r\n")
+            append("\(language)\r\n")
         }
 
         // Add prompt field if specified
         if let prompt = prompt, !prompt.isEmpty {
-            body.append("--\(boundary)\r\n")
-            body.append("Content-Disposition: form-data; name=\"prompt\"\r\n\r\n")
-            body.append("\(prompt)\r\n")
+            append("--\(boundary)\r\n")
+            append("Content-Disposition: form-data; name=\"prompt\"\r\n\r\n")
+            append("\(prompt)\r\n")
         }
 
-        body.append("--\(boundary)--\r\n")
+        append("--\(boundary)--\r\n")
 
         guard let url = URL(string: Constants.OpenAI.transcriptionEndpoint) else {
             throw OpenAITranscriptionError.invalidResponse
@@ -260,72 +265,93 @@ actor OpenAITranscriptionService {
         }
     }
 
-    /// Encodes audio samples as a WAV file.
-    /// - Parameters:
-    ///   - samples: Audio samples as Float array (normalized to -1.0 to 1.0)
-    ///   - sampleRate: Sample rate in Hz (default 16000)
-    /// - Returns: WAV file data, or nil if encoding failed
-    private func encodeWAV(samples: [Float], sampleRate: Int = 16000) -> Data? {
-        let numChannels: Int16 = 1
-        let bitsPerSample: Int16 = 16
-        let byteRate = Int32(sampleRate * Int(numChannels) * Int(bitsPerSample / 8))
-        let blockAlign: Int16 = numChannels * (bitsPerSample / 8)
-        let dataSize = Int32(samples.count * Int(bitsPerSample / 8))
-        let chunkSize = 36 + dataSize
-
-        var data = Data()
-
-        // RIFF header
-        data.append(contentsOf: "RIFF".utf8)
-        data.append(littleEndian: chunkSize)
-        data.append(contentsOf: "WAVE".utf8)
-
-        // fmt subchunk
-        data.append(contentsOf: "fmt ".utf8)
-        data.append(littleEndian: Int32(16)) // Subchunk1Size (16 for PCM)
-        data.append(littleEndian: Int16(1))  // AudioFormat (1 for PCM)
-        data.append(littleEndian: numChannels)
-        data.append(littleEndian: Int32(sampleRate))
-        data.append(littleEndian: byteRate)
-        data.append(littleEndian: blockAlign)
-        data.append(littleEndian: bitsPerSample)
-
-        // data subchunk
-        data.append(contentsOf: "data".utf8)
-        data.append(littleEndian: dataSize)
-
-        // Convert Float samples to Int16
-        for sample in samples {
-            // Clamp and convert to Int16 range
-            let clamped = max(-1.0, min(1.0, sample))
-            let int16Sample = Int16(clamped * Float(Int16.max))
-            data.append(littleEndian: int16Sample)
+    /// Post-processes a transcription using GPT to improve formatting and accuracy.
+    /// - Parameter text: The raw transcription text
+    /// - Returns: Post-processed text with improved formatting
+    func postProcess(text: String) async throws -> String {
+        guard let key = apiKey, !key.isEmpty else {
+            throw OpenAITranscriptionError.notConfigured
         }
 
-        return data
-    }
-}
+        guard let url = URL(string: Constants.OpenAI.chatCompletionsEndpoint) else {
+            throw OpenAITranscriptionError.invalidResponse
+        }
 
-// MARK: - Data Extension for WAV Encoding
+        let systemPrompt = """
+            You are a transcription post-processor. Your task is to clean up and improve speech-to-text output.
 
-private extension Data {
-    mutating func append(littleEndian value: Int16) {
-        var v = value.littleEndian
-        Swift.withUnsafeBytes(of: &v) { buffer in
-            append(contentsOf: buffer)
+            Rules:
+            - Add proper punctuation (periods, commas, question marks, exclamation points)
+            - Fix capitalization (sentence starts, proper nouns)
+            - Correct obvious speech-to-text errors where context makes the intended word clear
+            - Format numbers appropriately (e.g., "two hundred dollars" → "$200")
+            - Keep the original meaning exactly - never add, remove, or change the substance
+            - Do not add any commentary - output only the cleaned transcription
+            - If the input is already well-formatted, return it as-is
+            """
+
+        let requestBody: [String: Any] = [
+            "model": Constants.OpenAI.postProcessingModel,
+            "messages": [
+                ["role": "system", "content": systemPrompt],
+                ["role": "user", "content": text]
+            ],
+            "temperature": 0.1,
+            "max_tokens": 4096
+        ]
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        request.timeoutInterval = 30
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw OpenAITranscriptionError.invalidResponse
+            }
+
+            switch httpResponse.statusCode {
+            case 200:
+                struct ChatResponse: Decodable {
+                    struct Choice: Decodable {
+                        struct Message: Decodable {
+                            let content: String
+                        }
+                        let message: Message
+                    }
+                    let choices: [Choice]
+                }
+
+                let chatResponse = try JSONDecoder().decode(ChatResponse.self, from: data)
+                guard let content = chatResponse.choices.first?.message.content else {
+                    logger.warning("Post-processing returned empty response, using original text")
+                    return text
+                }
+                logger.info("Post-processing successful")
+                return content.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            case 401:
+                UserDefaults.standard.set(false, forKey: "openAIKeyValidated")
+                stateObserver.setState(.error("API key invalid"))
+                throw OpenAITranscriptionError.invalidAPIKey
+
+            case 429:
+                throw OpenAITranscriptionError.rateLimitExceeded
+
+            default:
+                logger.error("Post-processing failed with status \(httpResponse.statusCode)")
+                throw OpenAITranscriptionError.serverError(statusCode: httpResponse.statusCode)
+            }
+        } catch let error as OpenAITranscriptionError {
+            throw error
+        } catch {
+            logger.error("Post-processing request failed: \(error.localizedDescription)")
+            throw OpenAITranscriptionError.networkError(error)
         }
     }
 
-    mutating func append(littleEndian value: Int32) {
-        var v = value.littleEndian
-        Swift.withUnsafeBytes(of: &v) { buffer in
-            append(contentsOf: buffer)
-        }
-    }
-
-    mutating func append(_ string: String) {
-        if let data = string.data(using: .utf8) {
-            append(data)
-        }
-    }
 }
