@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let coordinator = TranscriptionCoordinator.shared
     private let networkMonitor = NetworkMonitor.shared
     private let outputManager = OutputManager()
+    private let snippetStore = SnippetStore.shared
     private var overlayWindow: OverlayWindow { OverlayWindow.shared }
     private let downloadOverlay = DownloadOverlayWindow()
     let updaterController = UpdaterController()
@@ -60,17 +61,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Start network monitoring
         networkMonitor.startMonitoring()
-
-        updaterController.checkForUpdatesOnLaunchIfNeeded()
-
-        // Warm up the audio engine so microphone is ready instantly when recording starts.
-        // This avoids the ~2 second delay for microphone hardware initialization.
-        do {
-            try audioCapture.warmUp()
-        } catch {
-            logger.warning("Failed to warm up audio engine: \(error.localizedDescription)")
-            // Not critical - will try again when first recording starts
-        }
 
         modelLoadTask = Task { [weak self] in
             guard let self else { return }
@@ -355,7 +345,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try Task.checkCancellation()
 
             if !text.isEmpty {
-                outputManager.output(text)
+                if let expanded = snippetStore.expandTextIfNeeded(text) {
+                    outputManager.output(expanded)
+                } else {
+                    outputManager.output(.plain(text))
+                }
             } else {
                 NotificationService.shared.showWarning(
                     title: "No Speech Detected",

@@ -3,6 +3,15 @@ import Carbon
 import ApplicationServices
 import os
 
+struct OutputContent {
+    let plainText: String
+    let richText: NSAttributedString?
+
+    static func plain(_ text: String) -> OutputContent {
+        OutputContent(plainText: text, richText: nil)
+    }
+}
+
 @MainActor
 final class OutputManager {
     enum OutputMode: String {
@@ -18,8 +27,8 @@ final class OutputManager {
         return OutputMode(rawValue: modeString) ?? .pasteInPlace
     }
 
-    func output(_ text: String) {
-        copyToClipboard(text)
+    func output(_ content: OutputContent) {
+        copyToClipboard(content)
 
         if mode == .pasteInPlace {
             guard checkAccessibilityPermission() else {
@@ -109,12 +118,23 @@ final class OutputManager {
         return true
     }
 
-    private func copyToClipboard(_ text: String) {
+    private func copyToClipboard(_ content: OutputContent) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        let success = pasteboard.setString(text, forType: .string)
-        if !success {
-            logger.warning("Failed to copy text to clipboard")
+
+        if let richText = content.richText, let rtfData = richText.rtfData() {
+            let item = NSPasteboardItem()
+            item.setData(rtfData, forType: .rtf)
+            item.setString(content.plainText, forType: .string)
+            let success = pasteboard.writeObjects([item])
+            if !success {
+                logger.warning("Failed to copy rich text to clipboard")
+            }
+        } else {
+            let success = pasteboard.setString(content.plainText, forType: .string)
+            if !success {
+                logger.warning("Failed to copy text to clipboard")
+            }
         }
     }
 
@@ -145,6 +165,13 @@ final class OutputManager {
             keyDown.post(tap: .cghidEventTap)
             keyUp.post(tap: .cghidEventTap)
         }
+    }
+}
+
+private extension NSAttributedString {
+    func rtfData() -> Data? {
+        let range = NSRange(location: 0, length: length)
+        return try? data(from: range, documentAttributes: [.documentType: DocumentType.rtf])
     }
 }
 

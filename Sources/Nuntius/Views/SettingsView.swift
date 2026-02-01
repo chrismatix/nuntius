@@ -46,6 +46,12 @@ struct SettingsView: View {
                     Label("Vocabulary", systemImage: "text.book.closed")
                 }
 
+            snippetsTab
+                .tag("snippets")
+                .tabItem {
+                    Label("Snippets", systemImage: "text.badge.plus")
+                }
+
             cloudTab
                 .tag("cloud")
                 .tabItem {
@@ -235,6 +241,10 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var snippetsTab: some View {
+        SnippetsView()
     }
 
     private var cloudTab: some View {

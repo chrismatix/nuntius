@@ -29,12 +29,14 @@ BUILD_DIR="${PROJECT_ROOT}/.build/release-bundle"
 DMG_DIR="${PROJECT_ROOT}/.build/dmg"
 
 SKIP_NOTARIZE=false
+SKIP_SIGN=false
 
 usage() {
-  echo "Usage: $0 [--skip-notarize]"
+  echo "Usage: $0 [--skip-notarize] [--skip-sign]"
   echo ""
   echo "Options:"
   echo "  --skip-notarize  Skip notarization (for local testing)"
+  echo "  --skip-sign      Skip code signing (for sharing with friends)"
   exit 1
 }
 
@@ -47,8 +49,12 @@ main() {
   echo "==> Creating app bundle..."
   create_bundle
 
-  echo "==> Signing app bundle..."
-  sign_app
+  if [[ "${SKIP_SIGN}" == "false" ]]; then
+    echo "==> Signing app bundle..."
+    sign_app
+  else
+    echo "==> Skipping code signing (--skip-sign)"
+  fi
 
   if [[ "${SKIP_NOTARIZE}" == "false" ]]; then
     echo "==> Creating DMG for notarization..."
@@ -60,7 +66,7 @@ main() {
     echo "==> Stapling notarization ticket..."
     staple_dmg
   else
-    echo "==> Skipping notarization (--skip-notarize)"
+    echo "==> Skipping notarization"
     echo "==> Creating DMG..."
     create_dmg
   fi
@@ -68,6 +74,13 @@ main() {
   echo ""
   echo "==> Release complete!"
   echo "    DMG: ${DMG_DIR}/${APP_NAME}.dmg"
+
+  if [[ "${SKIP_SIGN}" == "true" ]]; then
+    echo ""
+    echo "    NOTE: This is an unsigned build. Recipients should run:"
+    echo "    xattr -cr /Applications/${APP_NAME}.app"
+    echo "    Or right-click the app and select 'Open' to bypass Gatekeeper."
+  fi
 }
 
 parse_args() {
@@ -75,6 +88,11 @@ parse_args() {
     case "$1" in
       --skip-notarize)
         SKIP_NOTARIZE=true
+        shift
+        ;;
+      --skip-sign)
+        SKIP_SIGN=true
+        SKIP_NOTARIZE=true  # Can't notarize without signing
         shift
         ;;
       -h|--help)
@@ -209,8 +227,10 @@ create_dmg() {
   rm -f "${dmg_temp}"
   rm -rf "${staging}"
 
-  # Sign the DMG
-  codesign --force --sign "${SIGNING_IDENTITY}" "${dmg_path}"
+  # Sign the DMG (unless skipping)
+  if [[ "${SKIP_SIGN}" == "false" ]]; then
+    codesign --force --sign "${SIGNING_IDENTITY}" "${dmg_path}"
+  fi
 
   echo "    DMG created at: ${dmg_path}"
 }

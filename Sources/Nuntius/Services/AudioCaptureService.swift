@@ -106,9 +106,8 @@ final class AudioCaptureService {
     func stopCapture() {
         guard isCapturing else { return }
         isCapturing = false
-        logger.info("Audio capture stopped (engine still warm)")
-        // Note: We intentionally keep the engine running to avoid
-        // microphone warm-up delay on the next recording
+        shutDown()
+        logger.info("Audio capture stopped and engine shut down")
     }
 
     func currentSamples() -> [Float] {
