@@ -6,7 +6,7 @@ struct NuntiusApp: App {
 
     var body: some Scene {
         Settings {
-            SettingsView(updaterController: appDelegate.updaterController)
+            SettingsView()
                 .onAppear {
                     NSApp.setActivationPolicy(.regular)
                     NSApp.activate(ignoringOtherApps: true)

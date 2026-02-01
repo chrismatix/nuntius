@@ -6,10 +6,10 @@ struct MenuBarView: View {
     @AppStorage("transcriptionService") private var transcriptionService = "local"
     @AppStorage("openAIModel") private var openAIModel = Constants.OpenAI.defaultModel.rawValue
     @AppStorage("openAIKeyValidated") private var openAIKeyValidated = false
+    @AppStorage("recordingMode") private var recordingMode = "pushToTalk"
     @State private var modelManager = ModelManager.shared
     @State private var coordinator = TranscriptionCoordinator.shared
     @State private var networkMonitor = NetworkMonitor.shared
-    @ObservedObject var updaterController: UpdaterController
 
     /// Combined ID for the unified model picker
     private var unifiedModelSelection: String {
@@ -19,115 +19,55 @@ struct MenuBarView: View {
         return selectedModel
     }
 
+    private var hotkeyHint: String {
+        recordingMode == "tapToToggle" ? "Tap ⌥ Space to start/stop" : "Hold ⌥ Space to dictate"
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Nuntius")
-                    .font(.headline)
+        VStack(spacing: 0) {
+            // Header
+            headerSection
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+                .padding(.bottom, 12)
 
-                Spacer()
+            Divider()
+                .padding(.horizontal, 12)
 
-                serviceIndicator
+            // Hotkey hint
+            hotkeySection
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+
+            Divider()
+                .padding(.horizontal, 12)
+
+            // Options
+            if modelManager.downloadedModels.isEmpty && !openAIKeyValidated {
+                noModelsSection
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+            } else {
+                optionsSection
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+            }
+
+            // Offline warning
+            if transcriptionService == "openai" && !networkMonitor.isConnected {
+                offlineWarning
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
             }
 
             Divider()
+                .padding(.horizontal, 12)
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Press ⌥ Space to dictate")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-
-                if modelManager.downloadedModels.isEmpty && !openAIKeyValidated {
-                    Text("No models available")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                } else {
-                    HStack {
-                        Text("Model:")
-                        Picker("", selection: Binding(
-                            get: { unifiedModelSelection },
-                            set: { newValue in
-                                if newValue.hasPrefix("openai:") {
-                                    let modelId = String(newValue.dropFirst("openai:".count))
-                                    openAIModel = modelId
-                                    transcriptionService = "openai"
-                                    coordinator.selectService(.openai)
-                                } else {
-                                    let previousModelId = selectedModel
-                                    if modelManager.selectModel(newValue, previousModelId: previousModelId) {
-                                        selectedModel = newValue
-                                        transcriptionService = "local"
-                                        coordinator.selectService(.local)
-                                    }
-                                }
-                            }
-                        )) {
-                            // Local models section
-                            if !modelManager.downloadedModels.isEmpty {
-                                Section("Local") {
-                                    ForEach(modelManager.downloadedModels) { model in
-                                        Text(model.name).tag(model.id)
-                                    }
-                                }
-                            }
-
-                            // Cloud models section
-                            if openAIKeyValidated {
-                                Section("Cloud") {
-                                    ForEach(Constants.UnifiedModel.cloudModels()) { cloudModel in
-                                        Label(cloudModel.name, systemImage: "cloud.fill")
-                                            .tag(cloudModel.id)
-                                    }
-                                }
-                            }
-                        }
-                        .labelsHidden()
-                    }
-
-                    HStack {
-                        Text("Language:")
-                        LanguagePicker(selectedLanguage: $selectedLanguage)
-                            .labelsHidden()
-                    }
-
-                    if transcriptionService == "openai" && !networkMonitor.isConnected {
-                        HStack(spacing: 4) {
-                            Image(systemName: "wifi.slash")
-                                .foregroundStyle(.orange)
-                            Text("Offline - will use local model")
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                        }
-                    }
-                }
-            }
-
-            Divider()
-
-            Button("Check for Updates...") {
-                updaterController.checkForUpdates()
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.primary)
-            .disabled(!updaterController.canCheckForUpdates)
-
-            HStack {
-                SettingsLink {
-                    Text("Settings...")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.primary)
-
-                Spacer()
-
-                Button("Quit") {
-                    NSApp.terminate(nil)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.primary)
-            }
+            // Footer
+            footerSection
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
         }
-        .padding()
         .frame(width: 280)
         .onAppear {
             modelManager.refreshModels()
@@ -137,41 +77,200 @@ struct MenuBarView: View {
         }
     }
 
+    // MARK: - Header
+
+    private var headerSection: some View {
+        HStack {
+            HStack(spacing: 6) {
+                Image(systemName: "waveform")
+                    .font(.headline)
+                    .foregroundStyle(.tint)
+                Text("Nuntius")
+                    .font(.headline)
+            }
+
+            Spacer()
+
+            serviceIndicator
+        }
+    }
+
     @ViewBuilder
     private var serviceIndicator: some View {
         HStack(spacing: 4) {
             if transcriptionService == "openai" {
                 if !networkMonitor.isConnected {
                     Image(systemName: "wifi.slash")
-                        .font(.caption)
+                        .font(.caption2)
                         .foregroundStyle(.orange)
-                        .help("Offline - using local model")
                 } else {
                     Image(systemName: "cloud.fill")
-                        .font(.caption)
+                        .font(.caption2)
                         .foregroundStyle(.blue)
-                        .help("Using OpenAI Cloud")
                 }
                 Text("Cloud")
-                    .font(.caption)
+                    .font(.caption2)
+                    .fontWeight(.medium)
                     .foregroundStyle(networkMonitor.isConnected ? .blue : .orange)
             } else {
                 Image(systemName: "desktopcomputer")
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .help("Using local model")
                 Text("Local")
-                    .font(.caption)
+                    .font(.caption2)
+                    .fontWeight(.medium)
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .background(.quaternary)
-        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(.quaternary.opacity(0.8))
+        .clipShape(Capsule())
+    }
+
+    // MARK: - Hotkey
+
+    private var hotkeySection: some View {
+        Text(hotkeyHint)
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - No Models
+
+    private var noModelsSection: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle")
+                .foregroundStyle(.orange)
+            Text("No models available")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+    }
+
+    // MARK: - Options
+
+    private var optionsSection: some View {
+        VStack(spacing: 8) {
+            HStack {
+                Text("Model")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 70, alignment: .leading)
+
+                Spacer()
+
+                Picker("", selection: Binding(
+                    get: { unifiedModelSelection },
+                    set: { newValue in
+                        if newValue.hasPrefix("openai:") {
+                            let modelId = String(newValue.dropFirst("openai:".count))
+                            openAIModel = modelId
+                            transcriptionService = "openai"
+                            coordinator.selectService(.openai)
+                        } else {
+                            let previousModelId = selectedModel
+                            if modelManager.selectModel(newValue, previousModelId: previousModelId) {
+                                selectedModel = newValue
+                                transcriptionService = "local"
+                                coordinator.selectService(.local)
+                            }
+                        }
+                    }
+                )) {
+                    if !modelManager.downloadedModels.isEmpty {
+                        Section("Local") {
+                            ForEach(modelManager.downloadedModels) { model in
+                                Text(model.name).tag(model.id)
+                            }
+                        }
+                    }
+
+                    if openAIKeyValidated {
+                        Section("Cloud") {
+                            ForEach(Constants.UnifiedModel.cloudModels()) { cloudModel in
+                                Label(cloudModel.name, systemImage: "cloud.fill")
+                                    .tag(cloudModel.id)
+                            }
+                        }
+                    }
+                }
+                .labelsHidden()
+            }
+
+            HStack {
+                Text("Language")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 70, alignment: .leading)
+
+                Spacer()
+
+                LanguagePicker(selectedLanguage: $selectedLanguage)
+                    .labelsHidden()
+            }
+
+            HStack {
+                Text("Mode")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 70, alignment: .leading)
+
+                Spacer()
+
+                Picker("", selection: $recordingMode) {
+                    Text("Hold to talk").tag("pushToTalk")
+                    Text("Tap to toggle").tag("tapToToggle")
+                }
+                .labelsHidden()
+            }
+        }
+    }
+
+    // MARK: - Offline Warning
+
+    private var offlineWarning: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "wifi.slash")
+                .font(.caption)
+            Text("Offline – using local model")
+                .font(.caption)
+        }
+        .foregroundStyle(.orange)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 6)
+        .padding(.horizontal, 10)
+        .background(.orange.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    // MARK: - Footer
+
+    private var footerSection: some View {
+        HStack {
+            SettingsLink {
+                Label("Settings", systemImage: "gear")
+                    .font(.subheadline)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.primary)
+
+            Spacer()
+
+            Button {
+                NSApp.terminate(nil)
+            } label: {
+                Text("Quit")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
     }
 }
 
 #Preview {
-    MenuBarView(updaterController: UpdaterController())
+    MenuBarView()
 }

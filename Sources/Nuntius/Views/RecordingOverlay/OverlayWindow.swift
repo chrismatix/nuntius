@@ -147,6 +147,11 @@ struct WaveformContainer: View {
     @State private var coordinator = TranscriptionCoordinator.shared
     @AppStorage("selectedModel") private var selectedLocalModel = "base"
     @AppStorage("openAIModel") private var openAIModel = Constants.OpenAI.defaultModel.rawValue
+    @AppStorage("recordingMode") private var recordingMode = "pushToTalk"
+
+    private var isTapToToggle: Bool {
+        recordingMode == "tapToToggle"
+    }
 
     private var modelLabel: String {
         let effectiveService = coordinator.effectiveService
@@ -198,13 +203,23 @@ struct WaveformContainer: View {
                 }
 
                 if waveformView.message == nil {
-                    HStack(spacing: 4) {
-                        Image(systemName: serviceIcon)
-                            .font(.caption2)
-                        Text(modelLabel)
-                            .font(.caption2)
+                    HStack(spacing: 8) {
+                        HStack(spacing: 4) {
+                            Image(systemName: serviceIcon)
+                                .font(.caption2)
+                            Text(modelLabel)
+                                .font(.caption2)
+                        }
+                        .foregroundStyle(.secondary)
+
+                        if isTapToToggle && !waveformView.isProcessing {
+                            Text("·")
+                                .foregroundStyle(.tertiary)
+                            Text("⌥ Space to stop")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    .foregroundStyle(.secondary)
                 }
             }
             .padding(.vertical, 10)

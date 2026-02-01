@@ -11,15 +11,13 @@ let package = Package(
         .executable(name: "Nuntius", targets: ["Nuntius"])
     ],
     dependencies: [
-        .package(url: "https://github.com/argmaxinc/WhisperKit.git", from: "0.15.0"),
-        .package(url: "https://github.com/sparkle-project/Sparkle.git", from: "2.8.0")
+        .package(url: "https://github.com/argmaxinc/WhisperKit.git", from: "0.15.0")
     ],
     targets: [
         .executableTarget(
             name: "Nuntius",
             dependencies: [
-                "WhisperKit",
-                .product(name: "Sparkle", package: "Sparkle")
+                "WhisperKit"
             ],
             path: "Sources/Nuntius",
             resources: [

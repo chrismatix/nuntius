@@ -1,8 +1,6 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @ObservedObject var updaterController: UpdaterController
-
     @AppStorage("selectedModel") private var selectedModel = "base"
     @AppStorage("outputMode") private var outputMode = "paste"
     @AppStorage("hotkeyDisplay") private var hotkeyDisplay = "⌥ Space"
@@ -12,7 +10,9 @@ struct SettingsView: View {
     @AppStorage("openAIKeyValidated") private var openAIKeyValidated = false
     @AppStorage("openAIModel") private var openAIModel = Constants.OpenAI.defaultModel.rawValue
     @AppStorage("gptPostProcessingEnabled") private var gptPostProcessingEnabled = false
-    @AppStorage("debugSaveAudioToDesktop") private var debugSaveAudioToDesktop = false
+    @AppStorage("saveRecordingsEnabled") private var saveRecordingsEnabled = false
+    @AppStorage("saveTranscriptsEnabled") private var saveTranscriptsEnabled = false
+    @AppStorage("recordingsFolder") private var recordingsFolder = ""
 
     @State private var modelManager = ModelManager.shared
     @State private var coordinator = TranscriptionCoordinator.shared
@@ -121,27 +121,28 @@ struct SettingsView: View {
             }
 
             Section {
-                Toggle(
-                    "Check for updates automatically",
-                    isOn: Binding(
-                        get: { updaterController.automaticallyChecksForUpdates },
-                        set: { enabled in
-                            updaterController.setAutomaticallyChecksForUpdates(enabled)
-                        }
-                    )
-                )
-            } header: {
-                Text("Updates")
-            }
+                Toggle("Save audio recordings", isOn: $saveRecordingsEnabled)
+                Toggle("Save transcripts", isOn: $saveTranscriptsEnabled)
 
-            Section {
-                Toggle("Save recordings to Desktop", isOn: $debugSaveAudioToDesktop)
-                Text("Debug mode only. Saves a WAV file for each recording.")
+                HStack {
+                    Text("Folder:")
+                    Spacer()
+                    Text(displayFolderPath)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Button("Choose...") {
+                        selectFolder()
+                    }
+                }
+
+                Text("Recordings and transcripts will be saved to the selected folder.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } header: {
-                Text("Debug")
+                Text("Storage")
             }
+
         }
         .formStyle(.grouped)
     }
@@ -409,6 +410,41 @@ struct SettingsView: View {
             }
         }
     }
+
+    private var displayFolderPath: String {
+        if recordingsFolder.isEmpty {
+            return defaultRecordingsFolder
+        }
+        return (recordingsFolder as NSString).abbreviatingWithTildeInPath
+    }
+
+    private var defaultRecordingsFolder: String {
+        if let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            return documentsURL.appendingPathComponent("nuntius").path
+        }
+        return "~/Documents/nuntius"
+    }
+
+    private func selectFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Select a folder to store recordings and transcripts"
+        panel.prompt = "Select"
+
+        // Set initial directory
+        if !recordingsFolder.isEmpty {
+            panel.directoryURL = URL(fileURLWithPath: recordingsFolder)
+        } else if let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            panel.directoryURL = documentsURL
+        }
+
+        if panel.runModal() == .OK, let url = panel.url {
+            recordingsFolder = url.path
+        }
+    }
 }
 
 struct LanguagePicker: View {
@@ -564,5 +600,5 @@ struct CloudModelRow: View {
 }
 
 #Preview {
-    SettingsView(updaterController: UpdaterController())
+    SettingsView()
 }

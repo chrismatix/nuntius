@@ -16,7 +16,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let snippetStore = SnippetStore.shared
     private var overlayWindow: OverlayWindow { OverlayWindow.shared }
     private let downloadOverlay = DownloadOverlayWindow()
-    let updaterController = UpdaterController()
 
     private let logger = Logger(subsystem: "com.chrismatix.nuntius", category: "AppDelegate")
 
@@ -205,7 +204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover = NSPopover()
         popover?.contentSize = NSSize(width: 280, height: 200)
         popover?.behavior = .transient
-        popover?.contentViewController = NSHostingController(rootView: MenuBarView(updaterController: updaterController))
+        popover?.contentViewController = NSHostingController(rootView: MenuBarView())
     }
 
     private func setupHotkey() {
@@ -236,14 +235,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private var recordingMode: String {
+        UserDefaults.standard.string(forKey: "recordingMode") ?? "pushToTalk"
+    }
+
     private func handleHotkeyDown() {
         guard coordinator.isReady else { return }
+
+        let isTapToToggle = recordingMode == "tapToToggle"
 
         switch dictationState {
         case .idle:
             startDictation()
         case .recording:
-            break
+            // In tap-to-toggle mode, tapping again stops recording
+            if isTapToToggle {
+                stopDictationAndTranscribe()
+            }
         case .transcribing:
             cancelDictation()
             startDictation()
@@ -251,6 +259,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleHotkeyUp() {
+        // In tap-to-toggle mode, releasing the key does nothing
+        let isTapToToggle = recordingMode == "tapToToggle"
+        guard !isTapToToggle else { return }
+
         guard dictationState == .recording else { return }
         stopDictationAndTranscribe()
     }
@@ -329,7 +341,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlayWindow.showProcessing()
 
         let currentID = dictationID
-        saveDebugAudioIfNeeded(samples: samples, dictationID: currentID)
+        saveRecordingIfNeeded(samples: samples, dictationID: currentID)
         transcriptionTask = Task { [weak self] in
             guard let self else { return }
             await self.transcribeAndOutput(samples: samples, dictationID: currentID)
@@ -343,6 +355,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let text = try await coordinator.transcribe(samples: samples)
 
             try Task.checkCancellation()
+
+            // Save transcript if enabled
+            saveTranscriptIfNeeded(text, dictationID: dictationID)
 
             if !text.isEmpty {
                 if let expanded = snippetStore.expandTextIfNeeded(text) {
@@ -388,17 +403,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         syncNonDictationUI()
     }
 
-    private func saveDebugAudioIfNeeded(samples: [Float], dictationID: UUID) {
-        guard UserDefaults.standard.bool(forKey: "debugSaveAudioToDesktop") else { return }
+    private func saveRecordingIfNeeded(samples: [Float], dictationID: UUID) {
+        guard UserDefaults.standard.bool(forKey: "saveRecordingsEnabled") else { return }
 
         let samplesCopy = samples
         let idSuffix = String(dictationID.uuidString.prefix(8))
+        let folderURL = getRecordingsFolder()
 
         DispatchQueue.global(qos: .utility).async {
-            let logger = Logger(subsystem: "com.chrismatix.nuntius", category: "DebugAudio")
+            let logger = Logger(subsystem: "com.chrismatix.nuntius", category: "RecordingSave")
 
-            guard let desktopURL = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first else {
-                logger.error("Could not locate Desktop directory for debug audio save")
+            // Create directory if needed
+            do {
+                try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+            } catch {
+                logger.error("Failed to create recordings folder: \(error.localizedDescription)")
                 return
             }
 
@@ -407,21 +426,72 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
             let timestamp = formatter.string(from: Date())
 
-            let filename = "Nuntius-Recording-\(timestamp)-\(idSuffix).wav"
-            let fileURL = desktopURL.appendingPathComponent(filename)
+            let filename = "Recording-\(timestamp)-\(idSuffix).wav"
+            let fileURL = folderURL.appendingPathComponent(filename)
 
             guard let wavData = AudioWAVEncoder.encode(samples: samplesCopy, sampleRate: 16000) else {
-                logger.error("Failed to encode WAV data for debug recording")
+                logger.error("Failed to encode WAV data for recording")
                 return
             }
 
             do {
                 try wavData.write(to: fileURL, options: .atomic)
-                logger.info("Saved debug audio to Desktop: \(fileURL.lastPathComponent)")
+                logger.info("Saved recording to: \(fileURL.lastPathComponent)")
             } catch {
-                logger.error("Failed to save debug audio: \(error.localizedDescription)")
+                logger.error("Failed to save recording: \(error.localizedDescription)")
             }
         }
+    }
+
+    private func saveTranscriptIfNeeded(_ text: String, dictationID: UUID) {
+        guard UserDefaults.standard.bool(forKey: "saveTranscriptsEnabled") else { return }
+        guard !text.isEmpty else { return }
+
+        let idSuffix = String(dictationID.uuidString.prefix(8))
+        let folderURL = getRecordingsFolder()
+
+        DispatchQueue.global(qos: .utility).async {
+            let logger = Logger(subsystem: "com.chrismatix.nuntius", category: "TranscriptSave")
+
+            // Create directory if needed
+            do {
+                try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+            } catch {
+                logger.error("Failed to create transcripts folder: \(error.localizedDescription)")
+                return
+            }
+
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+            let timestamp = formatter.string(from: Date())
+
+            let filename = "Transcript-\(timestamp)-\(idSuffix).txt"
+            let fileURL = folderURL.appendingPathComponent(filename)
+
+            do {
+                try text.write(to: fileURL, atomically: true, encoding: .utf8)
+                logger.info("Saved transcript to: \(fileURL.lastPathComponent)")
+            } catch {
+                logger.error("Failed to save transcript: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func getRecordingsFolder() -> URL {
+        let storedPath = UserDefaults.standard.string(forKey: "recordingsFolder") ?? ""
+
+        if !storedPath.isEmpty {
+            return URL(fileURLWithPath: storedPath)
+        }
+
+        // Default to Documents/nuntius
+        if let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            return documentsURL.appendingPathComponent("nuntius")
+        }
+
+        // Fallback to home directory
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents/nuntius")
     }
 
     @objc private func handleModelDownloadState(_ notification: Notification) {

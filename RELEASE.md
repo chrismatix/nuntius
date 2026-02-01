@@ -1,6 +1,6 @@
-# Nuntius Release Guide
+# Nuntius Release Guide (Homebrew Cask)
 
-This guide covers everything needed to build and distribute Nuntius outside the Mac App Store.
+This guide covers building, signing, notarizing, and distributing Nuntius via a Homebrew cask.
 
 ## Table of Contents
 
@@ -10,8 +10,9 @@ This guide covers everything needed to build and distribute Nuntius outside the 
 4. [Releasing a New Version](#releasing-a-new-version)
 5. [Local Release (Manual)](#local-release-manual)
 6. [Automated Release (GitHub Actions)](#automated-release-github-actions)
-7. [How Auto-Updates Work](#how-auto-updates-work)
+7. [Homebrew Cask Setup](#homebrew-cask-setup)
 8. [Troubleshooting](#troubleshooting)
+9. [Release Checklist](#release-checklist)
 
 ---
 
@@ -44,7 +45,6 @@ For public distribution (avoids security warnings), you need:
 - **Apple Developer Account** ($99/year) with Developer ID capabilities
 - **Xcode Command Line Tools** installed (`xcode-select --install`)
 - **Developer ID Application certificate** in your keychain
-- **Sparkle EdDSA key pair** for signing updates
 
 ---
 
@@ -81,39 +81,7 @@ xcrun notarytool store-credentials "nuntius-notary" \
 
 Find your Team ID at https://developer.apple.com/account → Membership.
 
-### 3. Sparkle EdDSA Keys
-
-Sparkle uses EdDSA signatures to verify updates. Generate a key pair:
-
-```bash
-# Download Sparkle tools
-curl -L -o /tmp/Sparkle.tar.xz "https://github.com/sparkle-project/Sparkle/releases/download/2.8.1/Sparkle-2.8.1.tar.xz"
-mkdir -p /tmp/sparkle
-tar -xf /tmp/Sparkle.tar.xz -C /tmp/sparkle
-
-# Generate key pair
-/tmp/sparkle/bin/generate_keys
-```
-
-This outputs:
-- **Private key**: Store securely (needed for signing updates)
-- **Public key**: Add to Info.plist as `SUPublicEDKey`
-
-Add the public key to `Info.plist`:
-```xml
-<key>SUPublicEDKey</key>
-<string>YOUR_PUBLIC_KEY_HERE</string>
-```
-
-### 4. Configure Appcast URL
-
-Add the Sparkle feed URL to `Info.plist`:
-```xml
-<key>SUFeedURL</key>
-<string>https://chrismatix.github.io/nuntius/appcast.xml</string>
-```
-
-### 5. GitHub Secrets (for automated releases)
+### 3. GitHub Secrets (for automated releases)
 
 Add these secrets to your repository (Settings → Secrets and variables → Actions):
 
@@ -124,20 +92,12 @@ Add these secrets to your repository (Settings → Secrets and variables → Act
 | `APPLE_ID` | Your Apple ID email |
 | `APPLE_TEAM_ID` | Your Apple Developer Team ID |
 | `APPLE_APP_PASSWORD` | App-specific password for notarization |
-| `SPARKLE_EDDSA_PRIVATE_KEY` | Sparkle private key for signing updates |
 
 To export your certificate as base64:
 ```bash
 # Export from Keychain Access as .p12, then:
 base64 -i certificate.p12 | pbcopy
 ```
-
-### 6. Enable GitHub Pages
-
-The appcast.xml is hosted on GitHub Pages:
-
-1. Go to repository Settings → Pages
-2. Source: "GitHub Actions"
 
 ---
 
@@ -156,7 +116,7 @@ Update the version in `Info.plist` before releasing:
 ```
 
 - `CFBundleShortVersionString`: User-visible version (1.2.0)
-- `CFBundleVersion`: Build number, must always increase for Sparkle updates
+- `CFBundleVersion`: Build number (monotonic)
 
 ---
 
@@ -174,8 +134,8 @@ Use the release script for local builds:
 
 The script will:
 1. Build the app in release mode
-2. Create the app bundle with Sparkle.framework
-3. Sign everything with your Developer ID
+2. Create the app bundle
+3. Sign everything with your Developer ID (unless skipped)
 4. Create a DMG
 5. Submit to Apple for notarization (unless skipped)
 6. Staple the notarization ticket
@@ -188,16 +148,6 @@ Output: `.build/dmg/Nuntius.dmg`
 |----------|---------|-------------|
 | `SIGNING_IDENTITY` | `Developer ID Application` | Code signing identity |
 | `NOTARY_PROFILE` | `nuntius-notary` | Keychain profile for notarization |
-
-### Manual Sparkle Signing
-
-After creating the DMG, sign it for Sparkle updates:
-
-```bash
-/tmp/sparkle/bin/sign_update .build/dmg/Nuntius.dmg --ed-key-file /path/to/private-key
-```
-
-This outputs the signature attributes to include in your appcast.xml.
 
 ---
 
@@ -218,9 +168,7 @@ The easiest way to release is via GitHub Actions:
    - Signs with your Developer ID
    - Notarizes with Apple
    - Creates a signed DMG
-   - Signs the update for Sparkle
    - Creates a GitHub Release with the DMG
-   - Updates the appcast.xml on GitHub Pages
 
 ### Manual Workflow Trigger
 
@@ -231,46 +179,60 @@ You can also trigger the workflow manually:
 
 ---
 
-## How Auto-Updates Work
+## Homebrew Cask Setup
 
-Nuntius uses [Sparkle](https://sparkle-project.org/) for automatic updates:
+### 1. Create a Tap
 
-1. App checks `SUFeedURL` (appcast.xml) periodically
-2. Compares `CFBundleVersion` with versions in appcast
-3. If newer version available, prompts user to update
-4. Downloads DMG, verifies EdDSA signature
-5. Installs update and relaunches
+Create a separate repo, e.g. `homebrew-tap`.
 
-### Appcast Structure
-
-The `appcast.xml` file lists available versions:
-
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
-  <channel>
-    <title>Nuntius Updates</title>
-    <link>https://chrismatix.github.io/nuntius/appcast.xml</link>
-    <item>
-      <title>Version 1.2.0</title>
-      <pubDate>Mon, 01 Jan 2024 12:00:00 +0000</pubDate>
-      <sparkle:version>42</sparkle:version>
-      <sparkle:shortVersionString>1.2.0</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <enclosure
-        url="https://github.com/chrismatix/nuntius/releases/download/v1.2.0/Nuntius-1.2.0.dmg"
-        sparkle:edSignature="..."
-        sparkle:length="..."
-        type="application/octet-stream"/>
-    </item>
-  </channel>
-</rss>
+Directory layout:
+```
+Casks/nuntius.rb
 ```
 
-Key fields:
-- `sparkle:version`: Must match `CFBundleVersion` and always increase
-- `sparkle:edSignature`: EdDSA signature from `sign_update`
-- `sparkle:length`: File size in bytes
+### 2. Add the Cask
+
+`Casks/nuntius.rb`
+```ruby
+cask "nuntius" do
+  version "1.2.3"
+  sha256 "REPLACE_WITH_SHA256"
+
+  url "https://github.com/OWNER/REPO/releases/download/v#{version}/Nuntius-#{version}.dmg",
+      verified: "github.com/OWNER/REPO/"
+  name "Nuntius"
+  desc "Local speech-to-text transcription for macOS"
+  homepage "https://github.com/OWNER/REPO"
+
+  auto_updates true
+  depends_on macos: ">= :sonoma"
+
+  app "Nuntius.app"
+end
+```
+
+### 3. Publish the Tap
+
+Push the tap repo to GitHub. Users install via:
+```bash
+brew tap OWNER/tap
+brew install --cask nuntius
+```
+
+### 4. Update the Cask on Each Release
+
+After each release:
+1. Compute the new checksum:
+   ```bash
+   shasum -a 256 Nuntius-1.2.3.dmg
+   ```
+2. Update `version` and `sha256` in `Casks/nuntius.rb`.
+3. Commit and push the tap.
+
+Users update via:
+```bash
+brew upgrade --cask nuntius
+```
 
 ---
 
@@ -318,25 +280,6 @@ codesign --verify --deep --strict --verbose=2 /path/to/Nuntius.app
 spctl --assess --type exec -vvv /path/to/Nuntius.app
 ```
 
-### Sparkle updates not working
-
-1. Verify `SUFeedURL` is in Info.plist
-2. Check appcast.xml is accessible at the URL
-3. Ensure `sparkle:version` in appcast is greater than installed version
-4. Verify EdDSA signature matches public key in app
-
-Test the appcast:
-```bash
-curl -s https://chrismatix.github.io/nuntius/appcast.xml
-```
-
-### GitHub Actions fails to sign
-
-Ensure secrets are correctly set:
-- `DEVELOPER_ID_CERTIFICATE_P12` must be base64-encoded
-- Certificate password must match the .p12 export password
-- Apple credentials must be valid
-
 ---
 
 ## Release Checklist
@@ -348,5 +291,5 @@ Ensure secrets are correctly set:
 - [ ] Create and push version tag: `git tag v1.2.0 && git push origin v1.2.0`
 - [ ] Verify GitHub Actions workflow completes
 - [ ] Verify GitHub Release contains the DMG
-- [ ] Verify appcast.xml is updated on GitHub Pages
-- [ ] Test auto-update from previous version
+- [ ] Update Homebrew cask (`Casks/nuntius.rb`) in your tap
+- [ ] Test `brew install --cask nuntius` from the tap

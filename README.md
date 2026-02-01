@@ -13,6 +13,17 @@ Audio can be processed entirely on-device, or optionally sent to OpenAI for clou
 
 Download the latest DMG from [Releases](../../releases), open it, and drag Nuntius to Applications.
 
+### Homebrew (Cask)
+
+If you publish a Homebrew tap, users can install via:
+
+```bash
+brew tap OWNER/tap
+brew install --cask nuntius
+```
+
+Maintainers: a cask template lives at `homebrew/Casks/nuntius.rb`.
+
 ## Building from Source
 
 ```bash
@@ -37,18 +48,6 @@ For a release build with signing:
 1. Launch Nuntius — it lives in your menu bar
 2. Click the icon or use the global hotkey to start dictation
 3. Speak, and text appears wherever your cursor is
-
-## Auto-Updates
-
-Nuntius uses [Sparkle](https://sparkle-project.org/) for auto-updates. On first launch (after the second run), it will check for updates automatically.
-
-### Setting up EdDSA keys (maintainers)
-
-1. Download Sparkle from [releases](https://github.com/sparkle-project/Sparkle/releases)
-2. Run `./bin/generate_keys` to create a keypair (stored in Keychain)
-3. Export the private key: `./bin/generate_keys -x sparkle_private_key`
-4. Add the private key as `SPARKLE_EDDSA_PRIVATE_KEY` secret in GitHub
-5. Add your public key to `SUPublicEDKey` in Info.plist
 
 ## License
 

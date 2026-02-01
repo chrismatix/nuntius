@@ -20,8 +20,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "${SCRIPT_DIR}")"
 APP_NAME="Nuntius"
-BUNDLE_ID="com.chrismatix.nuntius"
-
 # Configurable via environment
 SIGNING_IDENTITY="${SIGNING_IDENTITY:-Developer ID Application}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-nuntius-notary}"
@@ -30,13 +28,15 @@ DMG_DIR="${PROJECT_ROOT}/.build/dmg"
 
 SKIP_NOTARIZE=false
 SKIP_SIGN=false
+RELEASE_VERSION=""
 
 usage() {
-  echo "Usage: $0 [--skip-notarize] [--skip-sign]"
+  echo "Usage: $0 [--skip-notarize] [--skip-sign] [--version X.Y.Z]"
   echo ""
   echo "Options:"
   echo "  --skip-notarize  Skip notarization (for local testing)"
   echo "  --skip-sign      Skip code signing (for sharing with friends)"
+  echo "  --version        Create git tag and GitHub release (requires gh)"
   exit 1
 }
 
@@ -75,6 +75,10 @@ main() {
   echo "==> Release complete!"
   echo "    DMG: ${DMG_DIR}/${APP_NAME}.dmg"
 
+  if [[ -n "${RELEASE_VERSION}" ]]; then
+    create_git_tag_and_release
+  fi
+
   if [[ "${SKIP_SIGN}" == "true" ]]; then
     echo ""
     echo "    NOTE: This is an unsigned build. Recipients should run:"
@@ -94,6 +98,14 @@ parse_args() {
         SKIP_SIGN=true
         SKIP_NOTARIZE=true  # Can't notarize without signing
         shift
+        ;;
+      --version)
+        if [[ -z "${2:-}" ]]; then
+          echo "Missing version after --version" >&2
+          usage
+        fi
+        RELEASE_VERSION="$2"
+        shift 2
         ;;
       -h|--help)
         usage
@@ -127,22 +139,6 @@ create_bundle() {
   # Copy Info.plist
   cp "${PROJECT_ROOT}/Info.plist" "${contents}/Info.plist"
 
-  # Copy Sparkle.framework into the bundle
-  local sparkle_path="${PROJECT_ROOT}/.build/artifacts/sparkle/Sparkle/Sparkle.framework"
-  if [[ -d "${sparkle_path}" ]]; then
-    cp -R "${sparkle_path}" "${frameworks}/"
-    echo "    Copied Sparkle.framework"
-  else
-    sparkle_path=$(find "${PROJECT_ROOT}/.build" -name "Sparkle.framework" -type d | head -1)
-    if [[ -n "${sparkle_path}" ]]; then
-      cp -R "${sparkle_path}" "${frameworks}/"
-      echo "    Copied Sparkle.framework"
-    fi
-  fi
-
-  # Add rpath for Frameworks directory
-  install_name_tool -add_rpath @executable_path/../Frameworks "${macos}/${APP_NAME}"
-
   # Copy resources from the build (SwiftPM bundles assets here)
   local bundle_resources="${PROJECT_ROOT}/.build/release/Nuntius_Nuntius.bundle"
   if [[ -d "${bundle_resources}" ]]; then
@@ -173,11 +169,6 @@ compile_assets() {
 sign_app() {
   local app_bundle="${BUILD_DIR}/${APP_NAME}.app"
   local entitlements="${PROJECT_ROOT}/Nuntius.entitlements"
-
-  # Sign Sparkle.framework first
-  codesign --force --options runtime --deep \
-    --sign "${SIGNING_IDENTITY}" \
-    "${app_bundle}/Contents/Frameworks/Sparkle.framework"
 
   # Sign the main executable
   codesign --force --options runtime \
@@ -251,6 +242,42 @@ staple_dmg() {
 
   xcrun stapler staple "${dmg_path}"
   echo "    Stapled notarization ticket to DMG"
+}
+
+create_git_tag_and_release() {
+  local tag="v${RELEASE_VERSION}"
+  local dmg_path="${DMG_DIR}/${APP_NAME}.dmg"
+  local versioned_dmg="${DMG_DIR}/${APP_NAME}-${RELEASE_VERSION}.dmg"
+
+  if ! command -v git >/dev/null 2>&1; then
+    echo "Error: git is required to create tags" >&2
+    exit 1
+  fi
+
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "Error: GitHub CLI (gh) is required to create releases" >&2
+    exit 1
+  fi
+
+  if [[ ! -f "${dmg_path}" ]]; then
+    echo "Error: DMG not found at ${dmg_path}" >&2
+    exit 1
+  fi
+
+  cp "${dmg_path}" "${versioned_dmg}"
+
+  if git rev-parse "${tag}" >/dev/null 2>&1; then
+    echo "Error: tag ${tag} already exists" >&2
+    exit 1
+  fi
+
+  git tag "${tag}"
+  git push origin "${tag}"
+
+  gh release create "${tag}" \
+    "${versioned_dmg}" \
+    --generate-notes \
+    --title "${APP_NAME} ${RELEASE_VERSION}"
 }
 
 main "$@"
