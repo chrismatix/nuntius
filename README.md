@@ -49,8 +49,6 @@ swift test
 ./scripts/release.sh                   # full signed + notarized DMG
 ```
 
-A cask template lives at `homebrew/Casks/nuntius.rb`.
-
 ## License
 
 Public Domain — see [LICENSE](LICENSE). Do whatever you want with it.

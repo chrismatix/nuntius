@@ -220,10 +220,25 @@ create_dmg() {
 
   # Sign the DMG (unless skipping)
   if [[ "${SKIP_SIGN}" == "false" ]]; then
-    codesign --force --sign "${SIGNING_IDENTITY}" "${dmg_path}"
+    echo "==> Signing app bundle (Developer ID)..."
+    sign_app
+  else
+    echo "==> Ad-hoc signing app bundle (--skip-sign)"
+    adhoc_sign_app
   fi
 
   echo "    DMG created at: ${dmg_path}"
+}
+
+adhoc_sign_app() {
+  local app_bundle="${BUILD_DIR}/${APP_NAME}.app"
+
+  # Ad-hoc sign everything so Gatekeeper can at least validate structure
+  codesign --force --deep --sign - "${app_bundle}"
+
+  # Verify
+  codesign --verify --deep --strict --verbose=2 "${app_bundle}"
+  echo "    Ad-hoc signature verified"
 }
 
 notarize_dmg() {
