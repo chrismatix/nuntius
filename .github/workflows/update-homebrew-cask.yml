@@ -1,0 +1,91 @@
+name: Update Homebrew Cask
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump-cask:
+    runs-on: macos-14
+
+    steps:
+      - name: Resolve version
+        id: version
+        run: |
+          TAG_NAME="${{ github.event.release.tag_name }}"
+          VERSION="${TAG_NAME#v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Download release DMG
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          DMG_URL="https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Nuntius-${VERSION}.dmg"
+          curl -fL "${DMG_URL}" -o "/tmp/Nuntius-${VERSION}.dmg"
+          echo "Downloaded ${DMG_URL}"
+
+      - name: Compute SHA256
+        id: sha
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          SHA256="$(shasum -a 256 "/tmp/Nuntius-${VERSION}.dmg" | awk '{print $1}')"
+          echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout tap repository
+        uses: actions/checkout@v4
+        with:
+          repository: chrismatix/homebrew-nuntius
+          path: tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN || github.token }}
+
+      - name: Update cask
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          SHA256="${{ steps.sha.outputs.sha256 }}"
+          CASK_PATH="tap/Casks/nuntius.rb"
+
+          if [[ ! -f "${CASK_PATH}" ]]; then
+            echo "Cask file not found at ${CASK_PATH}"
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import os
+          import re
+
+          version = os.environ["VERSION"]
+          sha256 = os.environ["SHA256"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          cask_path = os.environ["CASK_PATH"]
+
+          url = f"https://github.com/{repo}/releases/download/v{version}/Nuntius-{version}.dmg"
+
+          with open(cask_path, "r", encoding="utf-8") as f:
+              contents = f.read()
+
+          contents = re.sub(r'^(\s*version\s+)"[^"]*"', rf'\1"{version}"', contents, flags=re.MULTILINE)
+          contents = re.sub(r'^(\s*sha256\s+)"[^"]*"', rf'\1"{sha256}"', contents, flags=re.MULTILINE)
+          contents = re.sub(r'^(\s*url\s+)"[^"]*"', rf'\1"{url}"', contents, flags=re.MULTILINE)
+
+          with open(cask_path, "w", encoding="utf-8") as f:
+              f.write(contents)
+          PY
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA256: ${{ steps.sha.outputs.sha256 }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          CASK_PATH: tap/Casks/nuntius.rb
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          path: tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN || github.token }}
+          commit-message: "Update nuntius cask to v${{ steps.version.outputs.version }}"
+          title: "Update Nuntius cask to v${{ steps.version.outputs.version }}"
+          body: "Automated update for Nuntius v${{ steps.version.outputs.version }}."
+          branch: "automation/bump-cask-v${{ steps.version.outputs.version }}"
+          delete-branch: true

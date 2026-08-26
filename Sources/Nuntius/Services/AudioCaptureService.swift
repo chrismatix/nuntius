@@ -17,6 +17,26 @@ final class AudioCaptureService {
     var onAudioLevel: ((Float) -> Void)?
     var onConversionError: ((Error) -> Void)?
 
+    func ensureMicrophoneAccess() async throws {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized:
+            return
+        case .notDetermined:
+            let granted = await withCheckedContinuation { continuation in
+                AVCaptureDevice.requestAccess(for: .audio) { isGranted in
+                    continuation.resume(returning: isGranted)
+                }
+            }
+            if !granted {
+                throw AudioCaptureError.microphoneAccessDenied
+            }
+        case .denied, .restricted:
+            throw AudioCaptureError.microphoneAccessDenied
+        @unknown default:
+            throw AudioCaptureError.microphoneAccessDenied
+        }
+    }
+
     private var isCapturing: Bool {
         get { queue.sync { _isCapturing } }
         set { queue.sync { _isCapturing = newValue } }
@@ -151,14 +171,36 @@ final class AudioCaptureService {
     }
 
     private func calculateRms(from buffer: AVAudioPCMBuffer) -> Float {
-        guard let channelData = buffer.floatChannelData?[0] else { return 0 }
-
         let frames = Int(buffer.frameLength)
-        var sum: Float = 0
-        for i in 0..<frames {
-            sum += channelData[i] * channelData[i]
+        guard frames > 0 else { return 0 }
+
+        if let channelData = buffer.floatChannelData?[0] {
+            var sum: Float = 0
+            for i in 0..<frames {
+                sum += channelData[i] * channelData[i]
+            }
+            return sqrt(sum / Float(frames))
         }
-        return sqrt(sum / Float(frames))
+
+        if let channelData = buffer.int16ChannelData?[0] {
+            var sum: Float = 0
+            for i in 0..<frames {
+                let sample = Float(channelData[i]) / Float(Int16.max)
+                sum += sample * sample
+            }
+            return sqrt(sum / Float(frames))
+        }
+
+        if let channelData = buffer.int32ChannelData?[0] {
+            var sum: Float = 0
+            for i in 0..<frames {
+                let sample = Float(channelData[i]) / Float(Int32.max)
+                sum += sample * sample
+            }
+            return sqrt(sum / Float(frames))
+        }
+
+        return 0
     }
 
     private func convertBuffer(
@@ -196,6 +238,7 @@ enum AudioCaptureError: Error, LocalizedError {
     case invalidFormat
     case converterUnavailable
     case conversionFailed(Error)
+    case microphoneAccessDenied
 
     var errorDescription: String? {
         switch self {
@@ -205,6 +248,8 @@ enum AudioCaptureError: Error, LocalizedError {
             return "Audio converter could not be created"
         case .conversionFailed(let error):
             return "Audio conversion failed: \(error.localizedDescription)"
+        case .microphoneAccessDenied:
+            return "Microphone access was denied"
         }
     }
 }

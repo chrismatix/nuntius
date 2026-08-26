@@ -286,6 +286,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         dictationID = UUID()
+        let currentID = dictationID
         transcriptionTask?.cancel()
         transcriptionTask = nil
 
@@ -304,26 +305,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Start audio capture BEFORE showing overlay to avoid missing the
-        // first 1-2 seconds while the audio engine initializes
-        do {
-            try audioCapture.startCapture()
-            dictationState = .recording
-            updateStatusIcon(state: .recording)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await self.audioCapture.ensureMicrophoneAccess()
+                guard self.dictationID == currentID else { return }
 
-            // Show overlay only after recording has actually started
-            overlayWindow.show()
-            downloadOverlay.hide()
-        } catch {
-            logger.error("Failed to start audio capture: \(error.localizedDescription)")
-            dictationState = .idle
-            overlayWindow.hide()
-            updateStatusIcon(state: .error)
-            NotificationService.shared.showError(
-                title: "Audio Capture Failed",
-                message: "Could not access the microphone. Please check your system permissions.",
-                critical: false
-            )
+                // Start audio capture BEFORE showing overlay to avoid missing the
+                // first 1-2 seconds while the audio engine initializes
+                try self.audioCapture.startCapture()
+                self.dictationState = .recording
+                self.updateStatusIcon(state: .recording)
+
+                // Show overlay only after recording has actually started
+                self.overlayWindow.show()
+                self.downloadOverlay.hide()
+            } catch {
+                self.logger.error("Failed to start audio capture: \(error.localizedDescription)")
+                self.dictationState = .idle
+                self.overlayWindow.hide()
+                self.updateStatusIcon(state: .error)
+                NotificationService.shared.showError(
+                    title: "Audio Capture Failed",
+                    message: "Could not access the microphone. Please check your system permissions.",
+                    critical: false
+                )
+            }
         }
     }
 
