@@ -38,6 +38,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var transcriptionTask: Task<Void, Never>?
 
+    /// startDictation() reaches `.recording` asynchronously, so a short tap can
+    /// release the key before then. Without these the release is dropped by the
+    /// state guard and recording never stops.
+    private var isStartingDictation = false
+    private var stopRequestedWhileStarting = false
+
     private var modelState: WhisperService.State = .notReady
 
     private var downloadStatesByModelId: [String: ModelDownloadState] = [:]
@@ -61,9 +67,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Start network monitoring
         networkMonitor.startMonitoring()
 
+        // Keep UI in sync with local model state, even for lazy fallback loads
+        // that happen while OpenAI is the selected service.
+        coordinator.setWhisperStateCallback { [weak self] state in
+            Task { @MainActor in
+                self?.handleModelState(state)
+            }
+        }
+
         modelLoadTask = Task { [weak self] in
             guard let self else { return }
-            await loadModel()
+            await loadLocalModelIfSelected()
         }
     }
 
@@ -78,8 +92,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupNotifications() {
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(handleModelChange),
+            selector: #selector(reconcileLocalModel),
             name: Constants.Notifications.modelDidChange,
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(reconcileLocalModel),
+            name: Constants.Notifications.transcriptionServiceDidChange,
             object: nil
         )
 
@@ -91,15 +112,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    @objc private func handleModelChange() {
+    /// Reconciles the in-memory local model with the current settings.
+    /// Triggered when the selected model or the transcription service changes:
+    /// loads the local model when it's the selected service, and unloads it
+    /// (to free memory) when OpenAI is selected.
+    @objc private func reconcileLocalModel() {
         modelLoadTask?.cancel()
         cancelDictation()
         modelLoadTask = Task { [weak self] in
             guard let self else { return }
             await coordinator.unloadLocalModel()
             if Task.isCancelled { return }
-            await loadModel()
+            if coordinator.selectedService == .local {
+                await loadModel()
+            } else {
+                // OpenAI selected: keep the local model unloaded; it will load
+                // lazily if a transcription needs to fall back to it.
+                syncNonDictationUI()
+            }
         }
+    }
+
+    /// Loads the local model only when it's the selected transcription service.
+    private func loadLocalModelIfSelected() async {
+        guard coordinator.selectedService == .local else {
+            syncNonDictationUI()
+            return
+        }
+        await loadModel()
     }
 
     private func loadModel() async {
@@ -110,12 +150,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         defer {
             if modelLoadID == currentLoadID {
                 isModelLoadInProgress = false
-            }
-        }
-
-        coordinator.setWhisperStateCallback { [weak self] state in
-            Task { @MainActor in
-                self?.handleModelState(state)
             }
         }
 
@@ -263,8 +297,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let isTapToToggle = recordingMode == "tapToToggle"
         guard !isTapToToggle else { return }
 
-        guard dictationState == .recording else { return }
-        stopDictationAndTranscribe()
+        if dictationState == .recording {
+            stopDictationAndTranscribe()
+        } else if isStartingDictation {
+            stopRequestedWhileStarting = true
+        }
     }
 
     @objc private func togglePopover() {
@@ -289,6 +326,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let currentID = dictationID
         transcriptionTask?.cancel()
         transcriptionTask = nil
+        isStartingDictation = true
+        stopRequestedWhileStarting = false
+
+        // The popover holds key focus; leaving it up survives the whole dictation
+        // and swallows the paste target.
+        popover?.performClose(nil)
 
         audioCapture.onAudioLevel = { [weak self] level in
             self?.overlayWindow.updateLevel(level)
@@ -320,7 +363,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // Show overlay only after recording has actually started
                 self.overlayWindow.show()
                 self.downloadOverlay.hide()
+                self.isStartingDictation = false
+
+                // The key was released before the engine came up; honour it now.
+                if self.stopRequestedWhileStarting {
+                    self.stopRequestedWhileStarting = false
+                    self.stopDictationAndTranscribe()
+                }
             } catch {
+                self.isStartingDictation = false
+                self.stopRequestedWhileStarting = false
                 self.logger.error("Failed to start audio capture: \(error.localizedDescription)")
                 self.dictationState = .idle
                 self.overlayWindow.hide()
