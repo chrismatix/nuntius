@@ -8,6 +8,10 @@ Package.resolved
 CLAUDE.md
 AGENTS.md
 
+# JetBrains
+.idea/
+*.iml
+
 # Xcode
 *.xcodeproj/
 *.xcworkspace/

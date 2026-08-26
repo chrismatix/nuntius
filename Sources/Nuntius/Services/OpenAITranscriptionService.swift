@@ -83,6 +83,10 @@ actor OpenAITranscriptionService {
                 stateObserver.setState(.ready)
             }
         }
+        // A self-hosted endpoint carries its own auth, if any; there is no key to validate here.
+        if !Constants.OpenAI.requiresAPIKey {
+            stateObserver.setState(.ready)
+        }
     }
 
     nonisolated func setStateCallback(_ callback: @escaping @Sendable (State) -> Void) {
@@ -95,6 +99,18 @@ actor OpenAITranscriptionService {
 
     nonisolated var isReady: Bool {
         stateObserver.state == .ready
+    }
+
+    /// Re-evaluates readiness after the endpoint changes: a self-hosted server is
+    /// ready on its own, OpenAI needs a validated key.
+    nonisolated func refreshReadiness() {
+        if !Constants.OpenAI.requiresAPIKey {
+            stateObserver.setState(.ready)
+        } else if UserDefaults.standard.bool(forKey: "openAIKeyValidated") {
+            stateObserver.setState(.ready)
+        } else {
+            stateObserver.setState(.notConfigured)
+        }
     }
 
     /// Validates an API key by making a lightweight request to the models endpoint.
@@ -163,7 +179,8 @@ actor OpenAITranscriptionService {
     ///   - prompt: Optional vocabulary hint to improve recognition
     /// - Returns: Transcribed text
     func transcribe(samples: [Float], language: String? = nil, prompt: String? = nil) async throws -> String {
-        guard let key = apiKey, !key.isEmpty else {
+        let key = apiKey ?? ""
+        if Constants.OpenAI.requiresAPIKey && key.isEmpty {
             throw OpenAITranscriptionError.notConfigured
         }
 
@@ -218,7 +235,9 @@ actor OpenAITranscriptionService {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        if !key.isEmpty {
+            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        }
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
         request.timeoutInterval = 60

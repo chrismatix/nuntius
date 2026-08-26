@@ -15,16 +15,97 @@ enum Constants {
         static let transcriptionServiceDidChange = Notification.Name("com.chrismatix.nuntius.transcriptionServiceDidChange")
     }
 
-    /// OpenAI API configuration
+    /// Where audio is sent. Derived from the endpoint rather than stored: "server"
+    /// and "openai" are one code path distinguished only by the base URL.
+    enum Destination: String, CaseIterable, Identifiable {
+        case local, server, openai
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .local: return "On this Mac"
+            case .server: return "My server"
+            case .openai: return "OpenAI"
+            }
+        }
+
+        var detail: String {
+            switch self {
+            case .local: return "WhisperKit runs on this Mac. Nothing leaves the machine, no key needed."
+            case .server: return "An OpenAI-compatible server you run. No key needed."
+            case .openai: return "Audio is uploaded to OpenAI. Needs an API key."
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .local: return "desktopcomputer"
+            case .server: return "server.rack"
+            case .openai: return "cloud.fill"
+            }
+        }
+
+        static var current: Destination {
+            let service = UserDefaults.standard.string(forKey: "transcriptionService") ?? "local"
+            guard service == "openai" else { return .local }
+            return OpenAI.isSelfHosted ? .server : .openai
+        }
+
+        /// Applies the destination and returns the service the coordinator should select.
+        static func apply(_ destination: Destination, defaultServerURL: String = "http://127.0.0.1:8084/v1") -> String {
+            let defaults = UserDefaults.standard
+            switch destination {
+            case .local:
+                defaults.set("local", forKey: "transcriptionService")
+            case .server:
+                if !OpenAI.isSelfHosted {
+                    defaults.set(defaultServerURL, forKey: "transcriptionBaseURL")
+                }
+                defaults.set("openai", forKey: "transcriptionService")
+            case .openai:
+                defaults.set("", forKey: "transcriptionBaseURL")
+                defaults.set("openai", forKey: "transcriptionService")
+            }
+            return destination == .local ? "local" : "openai"
+        }
+    }
+
+    /// OpenAI-compatible API configuration. The transcription base URL is
+    /// configurable so it can point at a self-hosted server; post-processing keeps
+    /// its own, because a transcription box does not serve chat completions.
     enum OpenAI {
+        static let defaultBaseURL = "https://api.openai.com/v1"
+
+        private static func base(_ key: String) -> String {
+            let stored = (UserDefaults.standard.string(forKey: key) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !stored.isEmpty else { return defaultBaseURL }
+            return stored.hasSuffix("/") ? String(stored.dropLast()) : stored
+        }
+
+        /// Where audio is sent. Default is OpenAI; set `transcriptionBaseURL` to a
+        /// self-hosted OpenAI-compatible server to use that instead.
+        static var transcriptionBaseURL: String { base("transcriptionBaseURL") }
+
+        /// Where post-processing prompts go. Separate from transcription so a local
+        /// transcription server does not have to serve chat completions too.
+        static var postProcessingBaseURL: String { base("postProcessingBaseURL") }
+
+        /// True when audio goes somewhere other than OpenAI itself.
+        static var isSelfHosted: Bool { transcriptionBaseURL != defaultBaseURL }
+
+        /// A self-hosted server needs no bearer token; OpenAI itself does.
+        static var requiresAPIKey: Bool { !isSelfHosted }
+
         /// Transcription API endpoint
-        static let transcriptionEndpoint = "https://api.openai.com/v1/audio/transcriptions"
+        static var transcriptionEndpoint: String { transcriptionBaseURL + "/audio/transcriptions" }
 
         /// Chat completions API endpoint (for post-processing)
-        static let chatCompletionsEndpoint = "https://api.openai.com/v1/chat/completions"
+        static var chatCompletionsEndpoint: String { postProcessingBaseURL + "/chat/completions" }
 
         /// Models API endpoint for validation
-        static let modelsEndpoint = "https://api.openai.com/v1/models"
+        static var modelsEndpoint: String { defaultBaseURL + "/models" }
 
         /// Model used for post-processing transcriptions
         static let postProcessingModel = "gpt-4o-mini"

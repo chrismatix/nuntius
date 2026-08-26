@@ -11,14 +11,6 @@ struct MenuBarView: View {
     @State private var coordinator = TranscriptionCoordinator.shared
     @State private var networkMonitor = NetworkMonitor.shared
 
-    /// Combined ID for the unified model picker
-    private var unifiedModelSelection: String {
-        if transcriptionService == "openai" {
-            return "openai:\(openAIModel)"
-        }
-        return selectedModel
-    }
-
     private var hotkeyHint: String {
         recordingMode == "tapToToggle" ? "Tap ⌥ Space to start/stop" : "Hold ⌥ Space to dictate"
     }
@@ -155,7 +147,7 @@ struct MenuBarView: View {
     private var optionsSection: some View {
         VStack(spacing: 8) {
             HStack {
-                Text("Model")
+                Text("Send to")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .frame(width: 70, alignment: .leading)
@@ -163,38 +155,16 @@ struct MenuBarView: View {
                 Spacer()
 
                 Picker("", selection: Binding(
-                    get: { unifiedModelSelection },
+                    get: { Constants.Destination.current },
                     set: { newValue in
-                        if newValue.hasPrefix("openai:") {
-                            let modelId = String(newValue.dropFirst("openai:".count))
-                            openAIModel = modelId
-                            transcriptionService = "openai"
-                            coordinator.selectService(.openai)
-                        } else {
-                            let previousModelId = selectedModel
-                            if modelManager.selectModel(newValue, previousModelId: previousModelId) {
-                                selectedModel = newValue
-                                transcriptionService = "local"
-                                coordinator.selectService(.local)
-                            }
-                        }
+                        let service = Constants.Destination.apply(newValue)
+                        OpenAITranscriptionService.shared.refreshReadiness()
+                        transcriptionService = service
+                        coordinator.selectService(service == "local" ? .local : .openai)
                     }
                 )) {
-                    if !modelManager.downloadedModels.isEmpty {
-                        Section("Local") {
-                            ForEach(modelManager.downloadedModels) { model in
-                                Text(model.name).tag(model.id)
-                            }
-                        }
-                    }
-
-                    if openAIKeyValidated {
-                        Section("Cloud") {
-                            ForEach(Constants.UnifiedModel.cloudModels()) { cloudModel in
-                                Label(cloudModel.name, systemImage: "cloud.fill")
-                                    .tag(cloudModel.id)
-                            }
-                        }
+                    ForEach(Constants.Destination.allCases) { option in
+                        Label(option.label, systemImage: option.icon).tag(option)
                     }
                 }
                 .labelsHidden()

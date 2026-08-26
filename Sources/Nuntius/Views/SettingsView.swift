@@ -9,6 +9,8 @@ struct SettingsView: View {
     @AppStorage("transcriptionService") private var transcriptionService = "local"
     @AppStorage("openAIKeyValidated") private var openAIKeyValidated = false
     @AppStorage("openAIModel") private var openAIModel = Constants.OpenAI.defaultModel.rawValue
+    @AppStorage("transcriptionBaseURL") private var transcriptionBaseURL = ""
+    @AppStorage("postProcessingBaseURL") private var postProcessingBaseURL = ""
     @AppStorage("gptPostProcessingEnabled") private var gptPostProcessingEnabled = false
     @AppStorage("saveRecordingsEnabled") private var saveRecordingsEnabled = false
     @AppStorage("saveTranscriptsEnabled") private var saveTranscriptsEnabled = false
@@ -52,10 +54,10 @@ struct SettingsView: View {
                     Label("Snippets", systemImage: "text.badge.plus")
                 }
 
-            cloudTab
-                .tag("cloud")
+            transcriptionTab
+                .tag("transcription")
                 .tabItem {
-                    Label("Cloud", systemImage: "cloud")
+                    Label("Transcription", systemImage: "waveform")
                 }
         }
         .frame(width: 520, height: 560)
@@ -188,39 +190,17 @@ struct SettingsView: View {
                 Text("Local Models")
             }
 
-            if openAIKeyValidated {
+            if destination != .local {
                 Section {
-                    ForEach(Constants.UnifiedModel.cloudModels()) { cloudModel in
-                        CloudModelRow(
-                            model: cloudModel,
-                            isSelected: transcriptionService == "openai" && openAIModel == cloudModel.cloudModel?.rawValue,
-                            onSelect: {
-                                if let model = cloudModel.cloudModel {
-                                    openAIModel = model.rawValue
-                                    transcriptionService = "openai"
-                                    coordinator.selectService(.openai)
-                                }
-                            }
-                        )
-                    }
-
-                    Text("Cloud models require internet. Falls back to local model when offline.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } header: {
-                    Text("Cloud Models (OpenAI)")
-                }
-            } else {
-                Section {
-                    HStack {
-                        Image(systemName: "cloud")
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "info.circle")
                             .foregroundStyle(.secondary)
-                        Text("Configure an OpenAI API key in the Cloud tab to enable cloud models.")
+                        Text("Audio currently goes to \(destination.label), which picks its own model. These local models are the fallback used when it cannot be reached.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 } header: {
-                    Text("Cloud Models")
+                    Text("In Use")
                 }
             }
         }
@@ -248,120 +228,125 @@ struct SettingsView: View {
         SnippetsView()
     }
 
-    private var cloudTab: some View {
+    private var destination: Constants.Destination { Constants.Destination.current }
+
+    private func setDestination(_ new: Constants.Destination) {
+        let service = Constants.Destination.apply(new)
+        OpenAITranscriptionService.shared.refreshReadiness()
+        transcriptionService = service
+        coordinator.selectService(service == "local" ? .local : .openai)
+    }
+
+    private var transcriptionTab: some View {
         Form {
             Section {
-                if openAIKeyValidated {
-                    HStack {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                        Text("OpenAI cloud models are enabled")
+                Picker("Send audio to", selection: Binding(
+                    get: { destination },
+                    set: { setDestination($0) }
+                )) {
+                    ForEach(Constants.Destination.allCases) { option in
+                        Text(option.label).tag(option)
                     }
-                    Text("Select a cloud model in the Models tab to use OpenAI transcription.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    HStack {
-                        Image(systemName: "exclamationmark.circle")
-                            .foregroundStyle(.orange)
-                        Text("API key required to enable cloud models")
-                    }
-                    Text("Add your OpenAI API key below to unlock cloud transcription models.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
+                .pickerStyle(.radioGroup)
+
+                Text(destination.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             } header: {
-                Text("Status")
+                Text("Destination")
             }
 
-            if openAIKeyValidated {
+            if destination == .server {
                 Section {
-                    Toggle("GPT post-processing", isOn: $gptPostProcessingEnabled)
+                    TextField("http://127.0.0.1:8084/v1", text: $transcriptionBaseURL)
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled()
+                        .onSubmit { OpenAITranscriptionService.shared.refreshReadiness() }
 
-                    Text("Uses GPT to improve transcription formatting: adds punctuation, fixes capitalization, and corrects obvious errors.")
+                    Text("The base URL, ending in /v1 — \"/audio/transcriptions\" is appended. The server chooses the model, so the Models tab does not apply here.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } header: {
-                    Text("Post-Processing")
+                    Text("Server URL")
                 }
+            }
+
+            if destination == .openai {
+                Section {
+                    Picker("Model", selection: $openAIModel) {
+                        ForEach(Constants.OpenAI.TranscriptionModel.allCases, id: \.rawValue) { model in
+                            Text("\(model.displayName) — \(model.description)").tag(model.rawValue)
+                        }
+                    }
+                } header: {
+                    Text("OpenAI Model")
+                }
+            }
+
+            Section {
+                Toggle("Clean up transcripts with an LLM", isOn: $gptPostProcessingEnabled)
+
+                if gptPostProcessingEnabled {
+                    TextField("https://api.openai.com/v1", text: $postProcessingBaseURL)
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled()
+                }
+
+                Text(gptPostProcessingEnabled
+                     ? "Adds punctuation and capitalisation and fixes obvious mishearings, using your vocabulary. This is a chat-completions endpoint, which is why it is set separately — a transcription server does not serve one."
+                     : "Adds punctuation and capitalisation and fixes obvious mishearings. Costs one extra request per dictation.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Post-Processing")
             }
 
             Section {
                 HStack {
-                    SecureField("OpenAI API Key", text: $apiKeyInput)
+                    SecureField("sk-...", text: $apiKeyInput)
                         .textFieldStyle(.roundedBorder)
 
                     if isValidatingKey {
-                        ProgressView()
-                            .controlSize(.small)
+                        ProgressView().controlSize(.small)
                     } else if openAIKeyValidated {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                     } else if validationError != nil {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.red)
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
                     }
 
-                    Button("Validate") {
-                        validateAPIKey()
-                    }
-                    .disabled(apiKeyInput.isEmpty || isValidatingKey)
+                    Button("Validate") { validateAPIKey() }
+                        .disabled(apiKeyInput.isEmpty || isValidatingKey)
                 }
 
                 if let error = validationError {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
+                    Text(error).font(.caption).foregroundStyle(.red)
                 }
 
                 if openAIKeyValidated {
                     HStack {
-                        Text("API key validated and stored securely in Keychain.")
+                        Text("Stored in the macOS Keychain.")
                             .font(.caption)
                             .foregroundStyle(.green)
-
                         Spacer()
-
-                        Button("Remove Key") {
-                            removeAPIKey()
-                        }
-                        .buttonStyle(.borderless)
-                        .foregroundStyle(.red)
+                        Button("Remove Key") { removeAPIKey() }
+                            .buttonStyle(.borderless)
+                            .foregroundStyle(.red)
                     }
                 } else {
-                    Text("Your API key is stored securely in the macOS Keychain.")
+                    Text(destination == .server
+                         ? "Only needed if you send audio to OpenAI, or use OpenAI for post-processing."
+                         : "Created at platform.openai.com under API Keys. Stored in the macOS Keychain.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             } header: {
                 Text("OpenAI API Key")
             }
-
-            Section {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("How to get an API key:")
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("1. Visit platform.openai.com")
-                        Text("2. Sign in or create an account")
-                        Text("3. Go to API Keys in your account settings")
-                        Text("4. Create a new secret key and paste it above")
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
-            } header: {
-                Text("Help")
-            }
         }
         .formStyle(.grouped)
         .onAppear {
-            // Load existing key if available (masked)
-            if openAIKeyValidated {
-                apiKeyInput = "sk-••••••••••••••••"
-            }
+            if openAIKeyValidated { apiKeyInput = "sk-••••••••••••••••" }
         }
     }
 
@@ -555,47 +540,6 @@ struct ModelRow: View {
             onDownload()
         }
         .buttonStyle(.bordered)
-    }
-}
-
-struct CloudModelRow: View {
-    let model: Constants.UnifiedModel
-    let isSelected: Bool
-    let onSelect: () -> Void
-
-    var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(model.name)
-                        .fontWeight(isSelected ? .semibold : .regular)
-
-                    Image(systemName: "cloud.fill")
-                        .font(.caption)
-                        .foregroundStyle(.blue)
-                }
-
-                Text(model.description)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            if isSelected {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.tint)
-            } else {
-                Button("Select") {
-                    onSelect()
-                }
-                .buttonStyle(.borderless)
-            }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            onSelect()
-        }
     }
 }
 

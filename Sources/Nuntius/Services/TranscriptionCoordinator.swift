@@ -15,8 +15,8 @@ final class TranscriptionCoordinator {
 
         var displayName: String {
             switch self {
-            case .local: return "Local (WhisperKit)"
-            case .openai: return "OpenAI Cloud"
+            case .local: return "On this Mac"
+            case .openai: return Constants.OpenAI.isSelfHosted ? "My server" : "OpenAI"
             }
         }
     }
@@ -38,11 +38,15 @@ final class TranscriptionCoordinator {
 
     /// Whether the coordinator is ready to transcribe
     var isReady: Bool {
-        switch effectiveService {
+        switch selectedService {
         case .local:
             return whisperService.isReady
         case .openai:
-            return openAIService.isReady && networkMonitor.isConnected
+            // When OpenAI is selected we're always ready to start dictation:
+            // the cloud API is used when available, otherwise transcription
+            // falls back to the local model, which is loaded lazily on demand
+            // (we deliberately don't keep it in memory while using the API).
+            return true
         }
     }
 

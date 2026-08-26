@@ -159,6 +159,11 @@ struct WaveformContainer: View {
         case .local:
             return selectedLocalModel.capitalized
         case .openai:
+            // A self-hosted endpoint ignores the model field, so naming an OpenAI
+            // model there would claim the audio went somewhere it did not.
+            if Constants.OpenAI.isSelfHosted {
+                return "Server"
+            }
             if let model = Constants.OpenAI.TranscriptionModel(rawValue: openAIModel) {
                 return model.displayName
             }
@@ -167,7 +172,8 @@ struct WaveformContainer: View {
     }
 
     private var serviceIcon: String {
-        coordinator.effectiveService == .openai ? "cloud.fill" : "desktopcomputer"
+        guard coordinator.effectiveService == .openai else { return "desktopcomputer" }
+        return Constants.OpenAI.isSelfHosted ? "server.rack" : "cloud.fill"
     }
 
     var body: some View {
