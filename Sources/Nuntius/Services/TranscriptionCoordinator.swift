@@ -128,7 +128,7 @@ final class TranscriptionCoordinator {
     /// - Returns: Transcribed text
     func transcribe(samples: [Float]) async throws -> String {
         let language = UserDefaults.standard.string(forKey: "selectedLanguage") ?? Constants.defaultLanguage
-        let vocab = UserDefaults.standard.string(forKey: "vocabularyPrompt") ?? ""
+        let vocab = VocabularyStore.currentPrompt()
         let postProcessingEnabled = UserDefaults.standard.bool(forKey: "gptPostProcessingEnabled")
 
         // Determine which service to use

@@ -5,6 +5,7 @@ struct SettingsView: View {
     @AppStorage("outputMode") private var outputMode = "paste"
     @AppStorage("hotkeyDisplay") private var hotkeyDisplay = "⌥ Space"
     @AppStorage("vocabularyPrompt") private var vocabularyPrompt = ""
+    @AppStorage("vocabularyDirectory") private var vocabularyDirectory = ""
     @AppStorage("selectedLanguage") private var selectedLanguage = Constants.defaultLanguage
     @AppStorage("transcriptionService") private var transcriptionService = "local"
     @AppStorage("openAIKeyValidated") private var openAIKeyValidated = false
@@ -210,6 +211,26 @@ struct SettingsView: View {
     private var vocabularyTab: some View {
         Form {
             Section {
+                HStack {
+                    Text(vocabularyDirectory.isEmpty ? "No folder selected" : vocabularyDirectory)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .foregroundStyle(vocabularyDirectory.isEmpty ? .secondary : .primary)
+                    Spacer()
+                    if !vocabularyDirectory.isEmpty {
+                        Button("Clear") { vocabularyDirectory = "" }
+                    }
+                    Button("Choose…") { chooseVocabularyDirectory() }
+                }
+
+                Text(dictionaryFolderCaption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Dictionary Folder")
+            }
+
+            Section {
                 TextEditor(text: $vocabularyPrompt)
                     .frame(minHeight: 200, maxHeight: .infinity)
                     .font(.body.monospaced())
@@ -222,6 +243,28 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var dictionaryFolderCaption: String {
+        guard !vocabularyDirectory.isEmpty else {
+            return "Every .txt file in the folder is merged into the vocabulary, one term per line."
+        }
+        let files = VocabularyStore.dictionaryFiles(in: vocabularyDirectory)
+        guard !files.isEmpty else {
+            return "No .txt files found in this folder."
+        }
+        let names = files.map(\.lastPathComponent).joined(separator: ", ")
+        return "Merged into the vocabulary, one term per line: \(names)"
+    }
+
+    private func chooseVocabularyDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            vocabularyDirectory = url.path
+        }
     }
 
     private var snippetsTab: some View {
