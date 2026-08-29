@@ -85,8 +85,8 @@ actor WhisperService {
         var trimmed = prompt
         if trimmed.count > 500 {
             trimmed = String(trimmed.suffix(500))
-            if let firstNewline = trimmed.firstIndex(of: "\n") {
-                trimmed = String(trimmed[trimmed.index(after: firstNewline)...])
+            if let separatorRange = trimmed.range(of: ", ") {
+                trimmed = String(trimmed[separatorRange.upperBound...])
             }
         }
         vocabularyPrompt = trimmed

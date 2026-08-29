@@ -19,7 +19,8 @@ enum VocabularyStore {
             guard !term.isEmpty, seenTerms.insert(term.lowercased()).inserted else { continue }
             terms.append(term)
         }
-        return terms.reversed().joined(separator: "\n")
+        // Comma-joined: whisper degenerates to "..." on a newline-separated prompt.
+        return terms.reversed().joined(separator: ", ")
     }
 
     /// The .txt files that would be read, in the order they are merged.
