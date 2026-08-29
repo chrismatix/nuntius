@@ -81,7 +81,14 @@ actor WhisperService {
     private var selectedLanguage: String = Constants.defaultLanguage
 
     func setVocabularyPrompt(_ prompt: String) {
-        let trimmed = String(prompt.prefix(500))
+        // Whisper keeps the prompt tail, so truncate from the front, on a term boundary.
+        var trimmed = prompt
+        if trimmed.count > 500 {
+            trimmed = String(trimmed.suffix(500))
+            if let firstNewline = trimmed.firstIndex(of: "\n") {
+                trimmed = String(trimmed[trimmed.index(after: firstNewline)...])
+            }
+        }
         vocabularyPrompt = trimmed
     }
 

@@ -2,21 +2,24 @@ import Foundation
 
 /// Merges the manual vocabulary setting with an optional folder of .txt term lists.
 enum VocabularyStore {
-    /// Directory terms come first so the manual list sits at the prompt tail,
-    /// which is the part whisper keeps when the prompt overruns its token cap.
+    /// Whisper keeps the prompt tail on overrun, so the merge builds toward the
+    /// end: files in reverse name order (the alphabetically-first, most curated
+    /// list lands last), the manual terms after everything, and duplicates
+    /// resolved to their latest position.
     static func currentPrompt() -> String {
         let defaults = UserDefaults.standard
         let manual = defaults.string(forKey: "vocabularyPrompt") ?? ""
         let directory = defaults.string(forKey: "vocabularyDirectory") ?? ""
 
+        let lines = directoryLines(in: directory) + manual.components(separatedBy: .newlines)
         var seenTerms = Set<String>()
         var terms: [String] = []
-        for line in directoryLines(in: directory) + manual.components(separatedBy: .newlines) {
+        for line in lines.reversed() {
             let term = line.trimmingCharacters(in: .whitespaces)
             guard !term.isEmpty, seenTerms.insert(term.lowercased()).inserted else { continue }
             terms.append(term)
         }
-        return terms.joined(separator: "\n")
+        return terms.reversed().joined(separator: "\n")
     }
 
     /// The .txt files that would be read, in the order they are merged.
@@ -29,7 +32,7 @@ enum VocabularyStore {
         )) ?? []
         return contents
             .filter { $0.pathExtension.lowercased() == "txt" }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            .sorted { $0.lastPathComponent > $1.lastPathComponent }
     }
 
     private static func directoryLines(in path: String) -> [String] {
