@@ -24,6 +24,7 @@ final class OverlayWindow {
                 return
             }
         }
+        reposition()
         waveformView?.reset()
         window?.alphaValue = 1
         window?.orderFront(nil)
@@ -83,6 +84,7 @@ final class OverlayWindow {
             }
         }
 
+        reposition()
         waveformView?.showMessage(text, icon: icon)
         window?.alphaValue = 1
         window?.orderFront(nil)
@@ -94,21 +96,27 @@ final class OverlayWindow {
         }
     }
 
+    private let windowWidth: CGFloat = 400
+    private let windowHeight: CGFloat = 80
+    private let bottomMargin: CGFloat = 100
+
+    private func overlayFrame(on screen: NSScreen) -> NSRect {
+        let screenFrame = screen.visibleFrame
+        let x = screenFrame.origin.x + (screenFrame.width - windowWidth) / 2
+        let y = screenFrame.origin.y + bottomMargin
+        return NSRect(x: x, y: y, width: windowWidth, height: windowHeight)
+    }
+
+    private func reposition() {
+        guard let window, let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+        window.setFrame(overlayFrame(on: screen), display: false)
+    }
+
     @discardableResult
     private func createWindow() -> Bool {
         guard let screen = NSScreen.main ?? NSScreen.screens.first else { return false }
-        let screenFrame = screen.visibleFrame
 
-        let windowWidth: CGFloat = 400
-        let windowHeight: CGFloat = 80
-        let bottomMargin: CGFloat = 100
-
-        let x = screenFrame.origin.x + (screenFrame.width - windowWidth) / 2
-        let y = screenFrame.origin.y + bottomMargin
-
-        let frame = NSRect(x: x, y: y, width: windowWidth, height: windowHeight)
-
-        let panel = OverlayPanelFactory.makePanel(frame: frame)
+        let panel = OverlayPanelFactory.makePanel(frame: overlayFrame(on: screen))
 
         let waveform = WaveformView()
         let container = WaveformContainer(waveformView: waveform)
