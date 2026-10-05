@@ -7,6 +7,7 @@ final class AudioCaptureService {
     private let targetSampleRate: Double = 16_000
     private let converterQueue = DispatchQueue(label: "com.chrismatix.nuntius.audioconverter")
     private var converter: AVAudioConverter?
+    private var configurationObserver: NSObjectProtocol?
 
     private let queue = DispatchQueue(label: "com.chrismatix.nuntius.audiocapture")
     private var capturedSamples: [Float] = []
@@ -84,6 +85,16 @@ final class AudioCaptureService {
             self?.processBuffer(buffer)
         }
 
+        // Opening a Bluetooth mic flips the headset into its call profile, which
+        // reconfigures the device and silently stops the engine for good.
+        configurationObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: .main
+        ) { [weak self] _ in
+            self?.restartAfterConfigurationChange()
+        }
+
         do {
             try engine.start()
             isEngineRunning = true
@@ -97,7 +108,33 @@ final class AudioCaptureService {
     /// Shuts down the audio engine completely, releasing the microphone.
     func shutDown() {
         isCapturing = false
+        tearDownEngine()
+        logger.info("Audio engine shut down")
+    }
+
+    // Samples captured before the change are kept, so the clip spans the device switch.
+    private func restartAfterConfigurationChange() {
+        guard isEngineRunning else { return }
+        let wasCapturing = isCapturing
+        logger.info("Audio device configuration changed, restarting the engine")
+        isCapturing = false
+        tearDownEngine()
+        do {
+            try warmUp()
+            isCapturing = wasCapturing
+        } catch {
+            logger.error("Audio engine restart failed: \(error.localizedDescription)")
+            onConversionError?(error)
+        }
+    }
+
+    private func tearDownEngine() {
         isEngineRunning = false
+
+        if let configurationObserver {
+            NotificationCenter.default.removeObserver(configurationObserver)
+            self.configurationObserver = nil
+        }
 
         if let engine = engine {
             engine.inputNode.removeTap(onBus: 0)
@@ -106,7 +143,6 @@ final class AudioCaptureService {
         }
         self.engine = nil
         setConverter(nil)
-        logger.info("Audio engine shut down")
     }
 
     func startCapture() throws {
