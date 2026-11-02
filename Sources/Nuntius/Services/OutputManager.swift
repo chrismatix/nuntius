@@ -21,6 +21,9 @@ final class OutputManager {
 
     private let logger = Logger(subsystem: "com.chrismatix.nuntius", category: "OutputManager")
     private static let pasteDelay: TimeInterval = 0.05
+    // These draw their own UI: Accessibility only ever reports the window as focused,
+    // so the role check below can't see their inputs.
+    private static let selfDrawnAppBundleIdentifiers: Set<String> = ["dev.herdr.app"]
 
     var mode: OutputMode {
         let modeString = UserDefaults.standard.string(forKey: "outputMode") ?? "paste"
@@ -58,6 +61,11 @@ final class OutputManager {
         guard let frontApp = NSWorkspace.shared.frontmostApplication else {
             logger.debug("No frontmost application found")
             return false
+        }
+
+        if let bundleIdentifier = frontApp.bundleIdentifier,
+           Self.selfDrawnAppBundleIdentifiers.contains(bundleIdentifier) {
+            return true
         }
 
         let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
